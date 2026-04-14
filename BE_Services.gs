@@ -874,7 +874,8 @@ function api_getLogPribadi(user) {
                calc_upd = 0; calc_makanTotal = 0; calc_makanSiang = 0; calc_lain = 0; calc_total = 0;
            }
 
-          groupedData[st].push({
+            groupedData[st].push({
+               idTransaksi: (data[i][0]) ? data[i][0].toString() : "", // <--- TAMBAHKAN BARIS INI
                customer: (iCust !== -1 && data[i][iCust]) ? data[i][iCust].toString() : "-",
                lokasi: (iLokasi !== -1 && data[i][iLokasi]) ? data[i][iLokasi].toString() : "-",
                waktuKeluar: wKeluarStr,
@@ -1378,5 +1379,47 @@ function renderPublicVerification(stNumber, nrpp) {
     return HtmlService.createHtmlOutput(html);
   } catch (e) {
     return HtmlService.createHtmlOutput("<p>Error: " + e.message + "</p>");
+  }
+}
+
+// ==========================================================
+// MODUL USER: UPDATE NOMOR ST EPICOR (FIXED VERSION)
+// ==========================================================
+function api_userUpdateST(trxIds, newST, user) {
+  try {
+    const dbUpd = SpreadsheetApp.openById(DB_UPD_ID);
+    let targetSheetName = "Log_" + user.lokasi.trim();
+    let sheet = dbUpd.getSheetByName(targetSheetName);
+    
+    if(!sheet) throw new Error("Sheet " + targetSheetName + " tidak ditemukan.");
+    
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0].map(h => String(h).toUpperCase().trim());
+    let idxST = headers.indexOf("NO_ST");
+    
+    // Safety check jika kolom NO_ST tidak ditemukan
+    if (idxST === -1) idxST = 8; 
+    
+    let count = 0;
+    for(let i = 1; i < data.length; i++) {
+        // Bandingkan ID Transaksi (Kolom A)
+        let currentId = String(data[i][0]).trim();
+        if(trxIds.includes(currentId)) {
+            let targetCell = sheet.getRange(i + 1, idxST + 1);
+            
+            // SOLUSI: Set format sel ke Plain Text dulu, baru isi nilainya (Tanpa tanda petik)
+            targetCell.setNumberFormat("@"); 
+            targetCell.setValue(newST.toString().toUpperCase().trim());
+            
+            count++;
+        }
+    }
+    
+    SpreadsheetApp.flush(); // Paksa sinkronisasi database
+    return { status: "success", message: "Berhasil update " + count + " trip ke ST: " + newST };
+    
+  } catch(e) {
+    console.error("Error api_userUpdateST: " + e.message);
+    return { status: "error", message: "Gagal: " + e.message };
   }
 }

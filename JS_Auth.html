@@ -1,0 +1,100 @@
+<script>
+// ==============================================================================
+// FILE: JS_Auth.html
+// DESKRIPSI: Modul Layar Login dan Autentikasi (Anti-Fraud Device Binding)
+// ==============================================================================
+
+// --- CARI DAN GANTI FUNGSI INI DI JS_Auth.html ---
+
+function renderView_Login() {
+    DOM_Engine.clear('sys-root');
+    const root = document.getElementById('sys-root');
+    
+    // Membungkus seluruh layar dengan aurora background
+    const container = DOM_Engine.create('div', 'min-h-screen w-full flex bg-aurora', {});
+
+    const bgLeft = DOM_Engine.create('div', 'hidden lg:flex lg:w-1/2 flex-col justify-center items-center p-12 relative overflow-hidden', {}, [
+        // Floating 3D Elements Effect (Murni CSS bawaan Tailwind)
+        DOM_Engine.create('div', 'absolute w-96 h-96 bg-indigo-500/20 rounded-full blur-3xl -top-10 -left-10 animate-pulse'),
+        DOM_Engine.create('div', 'absolute w-96 h-96 bg-emerald-400/20 rounded-full blur-3xl bottom-10 right-10 animate-float'),
+        
+        DOM_Engine.create('div', 'relative z-10 text-center glass-dark p-12 rounded-[3rem] shadow-2xl border border-white/10 max-w-lg', {}, [
+            DOM_Engine.create('div', 'w-24 h-24 bg-white/10 backdrop-blur-md rounded-3xl flex items-center justify-center mx-auto mb-8 border border-white/20 shadow-[0_0_40px_rgba(255,255,255,0.1)]', {}, [DOM_Engine.create('i', 'fa-solid fa-shield-halved text-5xl text-emerald-400')]),
+            DOM_Engine.create('h1', 'text-5xl font-extrabold mb-4 tracking-tight text-white', {}, ['C.E.P.U']),
+            DOM_Engine.create('h2', 'text-xl font-bold mb-6 text-indigo-400 tracking-widest uppercase', {}, ['Catatan Evaluasi Pekerja Utama']),
+            DOM_Engine.create('p', 'text-slate-300 text-base leading-relaxed font-medium', {}, ['Kendalikan seluruh operasional dengan protokol anti-fraud tingkat militer dan eksekusi secepat kilat.'])
+        ])
+    ]);
+
+    const inpNRPP = DOM_Engine.create('div', 'relative', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-id-badge absolute left-5 top-4 text-slate-400 text-lg'),
+        DOM_Engine.create('input', 'input-premium w-full bg-white/70 border border-slate-200 rounded-2xl pl-12 pr-4 py-4 text-slate-800 font-bold focus:bg-white', { type: 'text', id: 'auth-inp-nrpp', placeholder: 'Masukkan NRPP', required: 'true', autocomplete: 'off' })
+    ]);
+    
+    const inpPass = DOM_Engine.create('div', 'relative', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-lock absolute left-5 top-4 text-slate-400 text-lg'),
+        DOM_Engine.create('input', 'input-premium w-full bg-white/70 border border-slate-200 rounded-2xl pl-12 pr-4 py-4 text-slate-800 focus:bg-white', { type: 'password', id: 'auth-inp-pass', placeholder: 'Kata Sandi Akses', required: 'true' })
+    ]);
+    
+    // [UPDATE BUG FIX]: Memanggil btn-glow-indigo agar tombol kembali menyala
+    const btnSubmit = DOM_Engine.create('button', 'btn-glow-indigo w-full text-white py-4 px-4 rounded-2xl font-bold text-lg mt-6 flex items-center justify-center gap-3 transition-transform', { type: 'submit', id: 'auth-btn-submit' }, ['Otorisasi Akses ', DOM_Engine.create('i', 'fa-solid fa-arrow-right-to-bracket')]);
+
+    const form = DOM_Engine.create('form', 'w-full max-w-sm glass p-10 rounded-[2rem] shadow-premium relative z-10 border border-white/50 fade-in-up', { onSubmit: handleAction_Login }, [
+        DOM_Engine.create('div', 'text-center mb-8', {}, [
+            DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-800 mb-2 tracking-tight', {}, ['Selamat Datang']),
+            DOM_Engine.create('p', 'text-slate-500 text-sm font-semibold', {}, ['Verifikasi identitas perangkat Anda.'])
+        ]),
+        DOM_Engine.create('div', 'space-y-5 mb-2', {}, [inpNRPP, inpPass]),
+        btnSubmit
+    ]);
+
+    const bgRight = DOM_Engine.create('div', 'w-full lg:w-1/2 flex items-center justify-center p-8 relative', {}, [
+        DOM_Engine.create('div', 'absolute inset-0 bg-[url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%2394a3b8\' fill-opacity=\'0.1\' fill-rule=\'evenodd\'%3E%3Ccircle cx=\'3\' cy=\'3\' r=\'3\'/%3E%3Cg/%3E%3C/svg%3E")] opacity-50'),
+        form
+    ]);
+    
+    container.appendChild(bgLeft);
+    container.appendChild(bgRight);
+    root.appendChild(container);
+}
+
+function handleAction_Login(e) {
+    e.preventDefault();
+    const nrpp = document.getElementById('auth-inp-nrpp').value;
+    const pass = document.getElementById('auth-inp-pass').value;
+    const btn = document.getElementById('auth-btn-submit');
+    const deviceId = sysGetDeviceId(); // Ambil Device ID dari Engine
+    
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Memverifikasi...';
+    btn.disabled = true;
+
+    google.script.run
+        .withSuccessHandler((res) => {
+            if (res.status === "success") {
+                sysShowToast("Akses Diterima! Perangkat Tervalidasi.", "success");
+                SysState.user = res.data;
+                localStorage.setItem('cepu_session', JSON.stringify(res.data));
+                renderView_MainLayout();
+            } else {
+                sysShowToast(res.message, "error");
+                btn.innerHTML = 'Masuk Sistem <i class="fa-solid fa-arrow-right"></i>';
+                btn.disabled = false;
+            }
+        })
+        .withFailureHandler(() => {
+            sysShowToast("Gagal terhubung ke server ERP.", "error");
+            btn.innerHTML = 'Masuk Sistem <i class="fa-solid fa-arrow-right"></i>';
+            btn.disabled = false;
+        })
+        .api_verifyLogin(nrpp, pass, deviceId); // Kirim deviceId ke Backend
+}
+
+function handleAction_Logout() {
+    localStorage.removeItem('cepu_session');
+    localStorage.removeItem('cepu_dinas_state'); // [FIX]: Bersihkan State Lokal
+    SysState.user = null;
+    SysState.dinas.isActive = false;
+    SysState.dinas.data = null;
+    renderView_Login();
+}
+</script>

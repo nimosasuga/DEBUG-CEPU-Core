@@ -348,12 +348,18 @@ function action_submitDinas(e) {
     const btn = document.getElementById('dinas-btn-submit');
     btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Memproses Keberangkatan...'; btn.disabled = true;
 
+    // [UPDATE LOGIKA ST]: Deteksi kosong atau teks menyusul
+    let inputST = document.getElementById('dinas-inp-nost').value.trim();
+    if (inputST === "" || inputST === "TIDAK ADA NO ST" || inputST === "ST MENYUSUL") {
+        inputST = "BELUM ADA NO ST"; // Pastikan string bersih tanpa kutip
+    }
+
     const payload = { 
-      noST: document.getElementById('dinas-inp-nost').value, 
+      noST: inputST, 
       customer: document.getElementById('dinas-inp-cust').value, 
       lokasi: document.getElementById('dinas-inp-lokasi').value, 
       kordinat: SysState.dinas.kordinat,
-      statusAbsensi: document.getElementById('dinas-sel-status').value // NEW: Kirim Status Absensi
+      statusAbsensi: document.getElementById('dinas-sel-status').value
     };
 
     google.script.run
@@ -420,11 +426,16 @@ function buildForm_NewDinas(initData = { statusOptions: [], historyST: [] }) {
     const stOptions = initData.historyST.map(h => DOM_Engine.create('option', '', { value: h.noST }));
     const stDataList = DOM_Engine.create('datalist', '', { id: 'list-history-st' }, stOptions);
 
+    // [UPDATE LOGIKA ST MENYUSUL]: Field tidak lagi required, auto-capslock, dan ada teks info.
     const fNoST = DOM_Engine.create('div', '', {}, [
-        DOM_Engine.create('label', 'block text-sm font-semibold text-slate-700 mb-1.5', {}, ['Nomor ST']),
-        DOM_Engine.create('input', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5', { 
-            type: 'text', id: 'dinas-inp-nost', placeholder: 'Contoh: 0982', required: 'true', list: 'list-history-st', autocomplete: 'off',
+        DOM_Engine.create('label', 'block text-sm font-semibold text-slate-700 mb-1.5', {}, [
+            'Nomor ST ', 
+            DOM_Engine.create('span', 'text-[11px] text-rose-500 font-bold italic', {}, ['(*Kosongkan/ketik TIDAK ADA NO ST jika menyusul)'])
+        ]),
+        DOM_Engine.create('input', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 uppercase', { 
+            type: 'text', id: 'dinas-inp-nost', placeholder: 'Masukan NO ST jika ada', list: 'list-history-st', autocomplete: 'off',
             onInput: function(e) {
+                this.value = this.value.toUpperCase(); // Auto Capslock Force
                 const val = this.value.trim();
                 const found = initData.historyST.find(h => h.noST === val);
                 if (found) {
@@ -436,7 +447,7 @@ function buildForm_NewDinas(initData = { statusOptions: [], historyST: [] }) {
         stDataList
     ]);
 
-    const fCust = createField('Nama Customer', 'dinas-inp-cust', 'MAJU BERSAMA', {
+    const fCust = createField('Nama Customer', 'dinas-inp-cust', 'Nama Customer tanpa PT (Contoh: SAT)', {
         onInput: function() { this.value = this.value.toUpperCase(); },
         onBlur: function() {
             let val = this.value.trim();
@@ -472,12 +483,24 @@ function buildForm_NewDinas(initData = { statusOptions: [], historyST: [] }) {
         }, ['[SUPER ADMIN] Bypass Validasi Berangkat']);
     }
 
-    // [BUG FIX]: Warna background Tailwind murni disuntikkan (bg-blue-600)
     const btnSubmit = DOM_Engine.create('button', 'bg-blue-600 hover:bg-blue-700 w-full text-white py-4 rounded-xl font-bold text-lg mt-8 opacity-50 cursor-not-allowed flex justify-center gap-2 shadow-md transition-colors', { type: 'submit', id: 'dinas-btn-submit', disabled: 'true' }, [DOM_Engine.create('i', 'fa-solid fa-paper-plane'), ' Mulai Perjalanan']);
 
-    return DOM_Engine.create('div', 'bg-white p-6 sm:p-8 rounded-3xl shadow-premium fade-in border border-slate-100', {}, [
-        DOM_Engine.create('h2', 'text-2xl font-bold text-slate-800 mb-6', {}, ['Form Keberangkatan']),
-        DOM_Engine.create('form', 'space-y-5', { onSubmit: action_submitDinas }, [groupStatus, fNoST, fCust, fLokasi, DOM_Engine.create('div', 'pt-4 border-t', {}, [DOM_Engine.create('label', 'block text-sm font-semibold mb-1', {}, ['Status GPS']), gpsBox]), DOM_Engine.create('div', '', {}, [scanBtn, scanStatus, bypassBtn]), btnSubmit])
+const infoSlides = [
+        { icon: 'fa-user-gear', title: 'Status Sesuai Jabatan', content: 'Mekanik: Gunakan H/BKF/BKS. Sales: Gunakan VC atau ST untuk pelacakan customer.' },
+        { icon: 'fa-file-circle-exclamation', title: 'Nomor ST Menyusul?', content: 'Ketik "TIDAK ADA NO ST". Sistem akan mengunci print hingga Anda mengupdate No ST Epicor nanti.' }
+    ];
+
+    return DOM_Engine.create('div', 'max-w-xl mx-auto', {}, [
+        CEPU_InfoSwiper.create('dinas', infoSlides), // Popup Info Card
+        DOM_Engine.create('div', 'bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-premium fade-in border border-slate-100', {}, [
+            DOM_Engine.create('h2', 'text-2xl font-bold text-slate-800 mb-6', {}, ['Form Keberangkatan']),
+            DOM_Engine.create('form', 'space-y-5', { onSubmit: action_submitDinas }, [
+                groupStatus, fNoST, fCust, fLokasi, 
+                DOM_Engine.create('div', 'pt-4 border-t', {}, [DOM_Engine.create('label', 'block text-sm font-semibold mb-1', {}, ['Status GPS']), gpsBox]), 
+                DOM_Engine.create('div', '', {}, [scanBtn, scanStatus, bypassBtn]), 
+                btnSubmit
+            ])
+        ])
     ]);
 }
 
@@ -1806,7 +1829,14 @@ function buildUI_LogPribadi(groupedData) {
         DOM_Engine.create('button', 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2 transition-all', { onClick: renderWorkspace_LogPribadi }, [DOM_Engine.create('i', 'fa-solid fa-rotate-right'), 'Refresh'])
     ]);
 
-    const stKeys = Object.keys(groupedData);
+// [URUTKAN]: Memastikan "BELUM ADA NO ST" selalu muncul paling atas
+    const stKeys = Object.keys(groupedData).sort((a, b) => {
+        if (a === "BELUM ADA NO ST") return -1; // 'a' naik ke atas
+        if (b === "BELUM ADA NO ST") return 1;  // 'b' naik ke atas
+        return b.localeCompare(a); // Sisanya diurutkan descending
+    });
+
+    // Validasi jika data kosong (Tetap menggunakan UI Glassmorphism Anda)
     if (stKeys.length === 0) {
         container.appendChild(DOM_Engine.create('div', 'bg-slate-50 min-h-screen p-2', {}, [headerSec, DOM_Engine.create('div', 'glass text-center py-16 rounded-[2rem] border border-white shadow-premium', {}, [
             DOM_Engine.create('i', 'fa-solid fa-folder-open text-5xl text-slate-300 mb-4'),
@@ -1815,7 +1845,7 @@ function buildUI_LogPribadi(groupedData) {
         return;
     }
 
-const accordions = stKeys.map(st => {
+    const accordions = stKeys.map(st => {
         const logs = groupedData[st];
         let totalUPD = 0; let totalDurasi = 0;
         logs.forEach(l => { totalUPD += l.nominal; totalDurasi += parseFloat(l.durasi); });
@@ -1876,9 +1906,13 @@ const accordions = stKeys.map(st => {
             DOM_Engine.create('tr', '', {}, ['Customer Tujuan', 'Waktu Keluar', 'Durasi', 'Nominal UPD', 'Status Jalan', 'Status Persetujuan', 'Status Print'].map(h => DOM_Engine.create('th', 'px-5 py-4 text-left text-xs font-extrabold text-slate-400 uppercase tracking-widest', {}, [h])))
         ]);
 
-        // [KILLER FEATURE]: Tombol Cetak Terkunci Secara Dinamis
+        // [KILLER FEATURE]: Tombol Cetak Terkunci Secara Dinamis & Update ST Epicor
         let btnCetakPDF;
-        if (isAlreadyPrinted) {
+        if (st === "BELUM ADA NO ST") {
+            btnCetakPDF = DOM_Engine.create('button', 'ml-3 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white border border-rose-600 text-xs font-bold rounded-lg shadow-md transition-all flex items-center gap-2 animate-pulse', {
+                onClick: () => action_openInputSTModal(st, logs) // Buka Modal Input ST
+            }, [DOM_Engine.create('i', 'fa-solid fa-pen-to-square'), 'Input No ST Epicor']);
+        } else if (isAlreadyPrinted) {
             btnCetakPDF = DOM_Engine.create('button', 'ml-3 px-3 py-1.5 bg-slate-800 text-slate-500 border border-slate-700 text-xs font-bold rounded-lg shadow-sm flex items-center gap-2 cursor-not-allowed', { 
                 disabled: true, title: 'Dokumen sudah pernah dicetak dan dikunci.' 
             }, [DOM_Engine.create('i', 'fa-solid fa-lock'), 'Terkunci (Sudah Print)']);
@@ -1922,7 +1956,17 @@ const accordions = stKeys.map(st => {
         ]);
     });
 
-    container.appendChild(DOM_Engine.create('div', 'bg-slate-50 min-h-screen p-2', {}, [headerSec, DOM_Engine.create('div', '', {}, accordions)]));
+    // --- [INJEKSI SWIPER CARD INFO] ---
+    const logSlides = [
+        { icon: 'fa-pen-to-square', title: 'Input No ST Epicor', content: 'Klik tombol merah "Input No ST Epicor" pada log yang masih berstatus BELUM ADA NO ST.' },
+        { icon: 'fa-object-group', title: 'Penggabungan Log', content: 'Anda bisa mencentang beberapa perjalanan sekaligus untuk digabungkan ke satu No ST Epicor yang baru.' }
+    ];
+
+    container.appendChild(DOM_Engine.create('div', 'bg-slate-50 min-h-screen p-2', {}, [
+        CEPU_InfoSwiper.create('log-upd', logSlides), // Memunculkan Popup Info di atas Header
+        headerSec, 
+        DOM_Engine.create('div', '', {}, accordions)
+    ]));
 }
 
 // FUNGSI PENGHUBUNG API PENGUNCI
@@ -2673,5 +2717,150 @@ function renderPDF_IndividualAudit(user, logs, filter) {
         sysShowToast("Gagal mengunduh PDF.", "error");
     });
 }
+
+// ==========================================================
+// MODAL UPDATE NO ST EPICOR & BULK SELECTION (SELF-SERVICE)
+// ==========================================================
+function action_openInputSTModal(stName, logs) {
+    const modalId = 'modal-update-st-epicor';
+
+    const btnCancel = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors', { 
+        type: 'button', onClick: () => document.getElementById(modalId).remove() 
+    }, ['Batal']);
+
+    const btnSave = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all', { 
+        type: 'button', id: 'btn-save-new-st',
+        onClick: () => {
+            const newST = document.getElementById('inp-new-epicor-st').value.trim();
+            if(!newST) return sysShowToast("Nomor ST Epicor wajib diisi!", "error");
+            
+            const checkedBoxes = document.querySelectorAll('.chk-update-st:checked');
+            if(checkedBoxes.length === 0) return sysShowToast("Pilih minimal 1 kunjungan yang ingin dimasukkan ke ST ini!", "error");
+            
+            const trxIds = Array.from(checkedBoxes).map(cb => cb.value);
+            execute_updateSTEpicor(trxIds, newST, modalId);
+        }
+    }, [DOM_Engine.create('i', 'fa-solid fa-cloud-arrow-up'), 'Simpan & Update ST']);
+
+    // List Checkbox Perjalanan
+    const logElements = logs.map(l => {
+        return DOM_Engine.create('label', 'flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-indigo-300 transition-colors shadow-sm mb-2 group', {}, [
+            DOM_Engine.create('input', 'chk-update-st w-5 h-5 text-indigo-600 rounded cursor-pointer border-slate-300', { type: 'checkbox', value: l.idTransaksi }),
+            DOM_Engine.create('div', 'flex-1', {}, [
+                DOM_Engine.create('p', 'text-sm font-bold text-slate-800 leading-tight group-hover:text-indigo-600', {}, [l.customer]),
+                DOM_Engine.create('p', 'text-[10px] text-slate-500', {}, [`Berangkat: ${l.waktuKeluar} | Durasi: ${l.durasi} Jam`])
+            ])
+        ]);
+    });
+
+    const formEdit = DOM_Engine.create('div', 'px-6 py-4 text-left max-h-[60vh] overflow-y-auto bg-slate-50', {}, [
+        DOM_Engine.create('div', 'mb-5', {}, [
+            DOM_Engine.create('label', 'block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider', {}, ['Nomor ST Resmi (Epicor)']),
+            DOM_Engine.create('input', 'input-premium w-full bg-white border-indigo-200 px-4 py-3 text-sm font-black uppercase text-indigo-700 shadow-inner', { 
+                type: 'text', id: 'inp-new-epicor-st', placeholder: 'Ketik Nomor ST Baru...',
+                onInput: function() { this.value = this.value.toUpperCase(); }
+            })
+        ]),
+        DOM_Engine.create('label', 'block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wider', {}, ['Pilih Kunjungan (Centang yang sesuai):']),
+        DOM_Engine.create('div', '', {}, logElements)
+    ]);
+
+    const modalContent = DOM_Engine.create('div', 'bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 text-center relative fade-in-up', {}, [
+        DOM_Engine.create('div', 'p-5 border-b border-slate-100 flex justify-between items-center', {}, [
+            DOM_Engine.create('h3', 'font-extrabold text-slate-800 text-lg flex items-center gap-2', {}, [DOM_Engine.create('i', 'fa-solid fa-file-pen text-indigo-600'), 'Input No ST Epicor']),
+            DOM_Engine.create('button', 'text-slate-400 hover:text-red-500', { type: 'button', onClick: () => document.getElementById(modalId).remove() }, [DOM_Engine.create('i', 'fa-solid fa-times')])
+        ]),
+        formEdit,
+        DOM_Engine.create('div', 'p-5 border-t border-slate-100 bg-white flex flex-col sm:flex-row justify-end gap-3', {}, [btnCancel, btnSave]) 
+    ]);
+
+    document.body.appendChild(DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4 fade-in', { id: modalId }, [modalContent]));
+}
+
+function execute_updateSTEpicor(trxIds, newST, modalId) {
+    const btn = document.getElementById('btn-save-new-st');
+    if(!btn) return;
+    
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Menyinkronkan...'; 
+    btn.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(res => {
+          if(res.status === 'success') {
+              if(document.getElementById(modalId)) document.getElementById(modalId).remove();
+              sysShowToast(res.message, 'success');
+              renderWorkspace_LogPribadi(); // Refresh UI
+          } else {
+              sysShowToast(res.message, 'error');
+              btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Simpan & Update ST'; 
+              btn.disabled = false;
+          }
+      })
+      .withFailureHandler(err => {
+          // ANTI LOADING ABADI: Menangkap error jaringan atau server crash
+          console.error("GAS System Error:", err);
+          sysShowToast("System Failure: " + err.message, "error");
+          btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Simpan & Update ST'; 
+          btn.disabled = false;
+      })
+      .api_userUpdateST(trxIds, newST, SysState.user);
+}
+
+// ==========================================================
+// COMPONENT: PURE DOM INFO-SWIPER (GLASSMORPHISM)
+// ==========================================================
+const CEPU_InfoSwiper = {
+    create: function(id, slides) {
+        let currentSlide = 0;
+        const containerId = `swiper-cont-${id}`;
+        const trackId = `swiper-track-${id}`;
+
+        const nextSlide = () => {
+            currentSlide = (currentSlide + 1) % slides.length;
+            const track = document.getElementById(trackId);
+            if (track) track.style.transform = `translateX(-${currentSlide * 100}%)`;
+            updateDots();
+        };
+
+        const updateDots = () => {
+            slides.forEach((_, i) => {
+                const dot = document.getElementById(`dot-${id}-${i}`);
+                if (dot) dot.className = (i === currentSlide) ? 'w-4 h-1.5 bg-indigo-500 rounded-full transition-all duration-300' : 'w-1.5 h-1.5 bg-slate-300 rounded-full transition-all duration-300';
+            });
+        };
+
+        // Auto-swipe interval 5 detik
+        const interval = setInterval(() => {
+            if (document.getElementById(containerId)) { nextSlide(); } else { clearInterval(interval); }
+        }, 5000);
+
+        const slideElements = slides.map((s, index) => {
+            return DOM_Engine.create('div', 'min-w-full p-5 flex items-start gap-4', {}, [
+                DOM_Engine.create('div', 'w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 shadow-sm', {}, [
+                    DOM_Engine.create('i', `fa-solid ${s.icon} text-xl`)
+                ]),
+                DOM_Engine.create('div', 'flex-1', {}, [
+                    DOM_Engine.create('h4', 'text-sm font-bold text-slate-800 mb-1', {}, [s.title]),
+                    DOM_Engine.create('p', 'text-xs text-slate-500 leading-relaxed', {}, [s.content])
+                ])
+            ]);
+        });
+
+        const dots = slides.map((_, i) => DOM_Engine.create('div', i === 0 ? 'w-4 h-1.5 bg-indigo-500 rounded-full' : 'w-1.5 h-1.5 bg-slate-300 rounded-full', { id: `dot-${id}-${i}` }));
+
+        return DOM_Engine.create('div', 'relative overflow-hidden bg-white/70 backdrop-blur-md border border-white rounded-[2rem] shadow-premium mb-6 fade-in group', { id: containerId }, [
+            // Close Button
+            DOM_Engine.create('button', 'absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full hover:bg-rose-100 text-slate-400 hover:text-rose-500 transition-all', {
+                onClick: () => { clearInterval(interval); document.getElementById(containerId).remove(); }
+            }, [DOM_Engine.create('i', 'fa-solid fa-times text-xs')]),
+            
+            // Sliding Track
+            DOM_Engine.create('div', 'flex transition-transform duration-700 ease-in-out', { id: trackId, style: 'transform: translateX(0%);' }, slideElements),
+            
+            // Dots Navigation
+            DOM_Engine.create('div', 'flex justify-center gap-1.5 pb-4', {}, dots)
+        ]);
+    }
+};
 
 </script>

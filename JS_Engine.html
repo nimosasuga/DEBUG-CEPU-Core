@@ -1,0 +1,79 @@
+<script>
+// ==============================================================================
+// FILE: JS_Engine.html
+// DESKRIPSI: Pure DOM Builder, Local Storage, Toast Notification & Device Security
+// ==============================================================================
+
+const DOM_Engine = {
+    create: function(tag, className = "", attributes = {}, children = []) {
+        const el = document.createElement(tag);
+        if (className) el.className = className;
+        
+        for (const key in attributes) {
+            if (key.startsWith('on') && typeof attributes[key] === 'function') {
+                el.addEventListener(key.substring(2).toLowerCase(), attributes[key]);
+            } else {
+                el.setAttribute(key, attributes[key]);
+            }
+        }
+        
+        children.forEach(child => {
+            if (!child) return;
+            if (typeof child === 'string' || typeof child === 'number') {
+                el.appendChild(document.createTextNode(child));
+            } else if (child instanceof Node) {
+                el.appendChild(child);
+            }
+        });
+        return el;
+    },
+    
+    clear: function(elementId) {
+        const el = document.getElementById(elementId);
+        if (el) el.innerHTML = '';
+    }
+};
+
+const SysState = {
+    user: null,
+    dinas: {
+        isActive: false,
+        data: null,
+        kordinat: null,
+        isLocValid: false,
+        isBarcodeValid: false
+    },
+    ui: {
+        scannerActive: null,
+        sidebarOpen: false
+    }
+};
+
+function sysShowToast(message, type = 'success') {
+    const container = document.getElementById('sys-toast-container');
+    const bgColor = type === 'success' ? 'bg-emerald-500' : (type === 'error' ? 'bg-red-500' : 'bg-blue-500');
+    const iconClass = type === 'success' ? 'fa-check-circle' : (type === 'error' ? 'fa-shield-halved' : 'fa-info-circle'); // Icon perisai untuk error fraud
+    
+    const icon = DOM_Engine.create('i', `fa-solid ${iconClass} text-white`);
+    const text = DOM_Engine.create('span', 'text-white text-sm font-medium', {}, [message]);
+    const toast = DOM_Engine.create('div', `${bgColor} shadow-lg rounded-xl px-4 py-3 flex items-center gap-3 transform translate-x-full transition-transform duration-300 pointer-events-auto`, {}, [icon, text]);
+    
+    container.appendChild(toast);
+    setTimeout(() => toast.classList.remove('translate-x-full'), 10);
+    setTimeout(() => {
+        toast.classList.add('translate-x-full');
+        setTimeout(() => toast.remove(), 300);
+    }, 4000); // Tampil lebih lama (4 detik) agar error terbaca
+}
+
+// SECURITY PROTOCOL: Device Fingerprinting
+function sysGetDeviceId() {
+    let deviceId = localStorage.getItem('cepu_device_id');
+    if (!deviceId) {
+        // Generate pseudo-UUID (Unik per Browser/HP)
+        deviceId = 'DEV-' + Math.random().toString(36).substr(2, 9).toUpperCase() + '-' + Date.now().toString(36).toUpperCase();
+        localStorage.setItem('cepu_device_id', deviceId);
+    }
+    return deviceId;
+}
+</script>

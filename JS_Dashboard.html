@@ -1,0 +1,2677 @@
+<script>
+// ==============================================================================
+// FILE: JS_Dashboard.html
+// DESKRIPSI: Modul UI Dashboard (Hybrid Scanner, Keberangkatan & Absen Pulang)
+// UPDATE: Dynamic Status Absensi Field
+// ==============================================================================
+
+// --- CARI DAN GANTI FUNGSI renderView_MainLayout & toggleSidebar DI JS_Dashboard.html ---
+
+  function renderView_MainLayout() {
+    DOM_Engine.clear('sys-root');
+    const root = document.getElementById('sys-root');
+    const isSuperAdmin = (SysState.user.jabatan === 'Super Admin' || SysState.user.jabatan === 'Administrator' || SysState.user.jabatan === 'HRD');
+
+    const overlay = DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 lg:hidden opacity-0 pointer-events-none transition-opacity duration-300', { id: 'nav-overlay', onClick: toggleSidebar });
+
+    const menuItems = [
+        DOM_Engine.create('div', 'sys-menu-item flex items-center gap-4 px-6 py-4 mx-4 rounded-2xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-lg cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-indigo-500/30 mt-2', { 
+            id: 'menu-dinas', 
+            onClick: () => sysNavigateTo(renderWorkspace_Dinas, 'menu-dinas') 
+        }, [
+            DOM_Engine.create('i', 'fa-solid fa-car-side text-lg w-6 text-center'),
+            DOM_Engine.create('span', 'tracking-wide', {}, ['Perjalanan Dinas'])
+        ])
+    ];
+
+    const isUpdEligible = SysState.user.isUpdEligible !== undefined ? SysState.user.isUpdEligible : (!isSuperAdmin && SysState.user.lokasi.toString().toUpperCase() !== 'SALES' && SysState.user.jabatan.toString().toUpperCase() !== 'SALES');
+
+    if (isUpdEligible) {
+        menuItems.push(DOM_Engine.create('div', 'sys-menu-item flex items-center gap-4 px-6 py-3.5 mx-4 rounded-2xl font-semibold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer mt-2 transition-all group border border-transparent hover:border-indigo-100', { 
+            id: 'menu-log-pribadi', 
+            onClick: () => sysNavigateTo(renderWorkspace_LogPribadi, 'menu-log-pribadi') 
+        }, [
+            DOM_Engine.create('i', 'fa-solid fa-folder-open text-lg w-6 text-center text-slate-400 group-hover:text-indigo-500 transition-colors'),
+            DOM_Engine.create('span', 'tracking-wide', {}, ['Log Perjalanan (UPD)'])
+        ]));
+
+        // [MENU BARU]: Cetak Deklarasi
+        menuItems.push(DOM_Engine.create('div', 'sys-menu-item flex items-center gap-4 px-6 py-3.5 mx-4 rounded-2xl font-semibold text-slate-600 hover:bg-purple-50 hover:text-purple-600 cursor-pointer mt-2 transition-all group border border-transparent hover:border-purple-100', { 
+            id: 'menu-cetak-deklarasi', 
+            onClick: () => sysNavigateTo(renderWorkspace_CetakDeklarasi, 'menu-cetak-deklarasi') 
+        }, [
+            DOM_Engine.create('i', 'fa-solid fa-print text-lg w-6 text-center text-slate-400 group-hover:text-purple-500 transition-colors'),
+            DOM_Engine.create('span', 'tracking-wide', {}, ['Cetak Deklarasi'])
+        ]));
+    }
+
+    if (isSuperAdmin) {
+        // [UPDATE KILLER UI]: Modifikasi agar semua Menu Super Admin masuk ke dalam sistem Navigasi
+        const createAdminMenu = (menuId, icon, text, actionCallback) => DOM_Engine.create('div', 'sys-menu-item flex items-center gap-4 px-6 py-3.5 mx-4 rounded-2xl font-semibold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer mt-2 transition-all group border border-transparent hover:border-indigo-100', { 
+            id: menuId, 
+            onClick: () => sysNavigateTo(actionCallback || (() => sysShowToast(`Akses Modul: ${text}`)), menuId) 
+        }, [
+            DOM_Engine.create('i', `fa-solid ${icon} text-lg w-6 text-center text-slate-400 group-hover:text-indigo-500 transition-colors`),
+            DOM_Engine.create('span', 'tracking-wide', {}, [text])
+        ]);
+
+        menuItems.push(DOM_Engine.create('div', 'px-8 mt-8 mb-3 text-[11px] font-extrabold text-indigo-400 tracking-widest uppercase flex items-center gap-2', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-crown'), 'Command Center'
+        ]));
+
+        menuItems.push(createAdminMenu('menu-master', 'fa-database', 'Master Data (DB)', renderWorkspace_MasterDB));
+        menuItems.push(createAdminMenu('menu-karyawan', 'fa-users-gear', 'Kelola Karyawan', renderWorkspace_KelolaKaryawan));
+        menuItems.push(createAdminMenu('menu-live-tracking', 'fa-satellite-dish', 'Global Live Tracking', renderWorkspace_LiveTracking));
+        menuItems.push(createAdminMenu('menu-approval', 'fa-file-signature', 'Anomali & Approval', renderWorkspace_Approval));
+        menuItems.push(createAdminMenu('menu-rekap', 'fa-file-csv', 'Export Data Rekap', renderWorkspace_RekapData));
+    }
+
+    const sidebarMenu = DOM_Engine.create('div', 'py-6 space-y-1 flex-1 overflow-y-auto hide-scrollbar', {}, menuItems);
+
+    const profileSubtitle = [SysState.user.jabatan, SysState.user.golongan, SysState.user.statusKaryawan].filter(Boolean).join(' • ');
+
+    const userCard = DOM_Engine.create('div', `p-4 mx-4 mb-4 rounded-2xl flex items-center gap-4 border ${isSuperAdmin ? 'bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200/50' : 'bg-slate-50 border-slate-200'}`, {}, [
+        DOM_Engine.create('div', `w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-inner ${isSuperAdmin ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-slate-200'}`, {}, [
+            DOM_Engine.create('i', `fa-solid ${isSuperAdmin ? 'fa-bolt text-white text-xl' : 'fa-user text-slate-400 text-xl'}`)
+        ]),
+        DOM_Engine.create('div', 'overflow-hidden flex-1', {}, [
+            DOM_Engine.create('p', 'text-sm font-extrabold text-slate-800 truncate tracking-tight', {}, [SysState.user.nama]),
+            DOM_Engine.create('p', `text-[10px] uppercase font-bold mt-1 tracking-wider truncate ${isSuperAdmin ? 'text-amber-600' : 'text-slate-500'}`, {}, [profileSubtitle])
+        ])
+    ]);
+
+    const btnLogout = DOM_Engine.create('button', 'mx-4 mb-6 flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold text-rose-500 bg-rose-50 hover:bg-rose-500 hover:text-white transition-colors shadow-sm', { onClick: handleAction_Logout }, [DOM_Engine.create('i', 'fa-solid fa-power-off'), ' Keluar Sistem']);
+
+    const sidebar = DOM_Engine.create('nav', 'w-80 bg-white/80 backdrop-blur-2xl h-full flex flex-col fixed lg:static z-50 sidebar-transition -translate-x-full lg:translate-x-0 border-r border-slate-200 shadow-[4px_0_24px_rgba(0,0,0,0.02)]', { id: 'nav-sidebar' }, [
+        DOM_Engine.create('div', 'h-20 flex items-center gap-4 px-8 border-b border-slate-100', {}, [
+            DOM_Engine.create('div', 'w-10 h-10 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-xl flex items-center justify-center shadow-md', {}, [DOM_Engine.create('i', 'fa-solid fa-layer-group text-white text-lg')]),
+            DOM_Engine.create('span', 'font-extrabold text-2xl text-slate-800 tracking-tighter', {}, ['C.E.P.U'])
+        ]),
+        sidebarMenu, userCard, btnLogout
+    ]);
+
+    const header = DOM_Engine.create('header', 'glass h-20 sticky top-0 z-30 flex items-center justify-between px-6 lg:px-10 border-b border-slate-200/50', {}, [
+        DOM_Engine.create('div', 'flex items-center gap-4', {}, [
+            DOM_Engine.create('button', 'lg:hidden w-10 h-10 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-xl transition-colors', { onClick: toggleSidebar }, [DOM_Engine.create('i', 'fa-solid fa-bars text-lg')]),
+            DOM_Engine.create('h1', 'font-bold text-xl text-slate-800 tracking-tight', {}, ['Dashboard Utama'])
+        ])
+    ]);
+
+    const workspace = DOM_Engine.create('div', 'p-6 lg:p-10 max-w-5xl mx-auto w-full relative z-10', { id: 'nav-workspace' });
+
+    const scrollArea = DOM_Engine.create('main', 'flex-1 overflow-y-auto bg-aurora relative', {}, [
+        DOM_Engine.create('div', 'absolute inset-0 bg-[url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%2394a3b8\' fill-opacity=\'0.05\' fill-rule=\'evenodd\'%3E%3Ccircle cx=\'3\' cy=\'3\' r=\'3\'/%3E%3Cg/%3E%3C/svg%3E")] pointer-events-none'),
+        header, workspace
+    ]);
+
+    const modalScanner = DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4 opacity-0 transition-opacity duration-300', { id: 'dinas-modal' }, [
+        DOM_Engine.create('div', 'bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden transform scale-95 transition-transform border border-slate-100', { id: 'dinas-modal-content' }, [
+            DOM_Engine.create('div', 'p-5 border-b flex justify-between items-center bg-slate-50', {}, [
+                DOM_Engine.create('h3', 'font-bold text-lg text-slate-800', {}, ['Scan Barcode POS']),
+                DOM_Engine.create('button', 'w-8 h-8 rounded-full hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors', { onClick: action_closeScanner }, [DOM_Engine.create('i', 'fa-solid fa-times text-lg')])
+            ]),
+            DOM_Engine.create('div', 'flex border-b border-slate-200', {}, [
+                DOM_Engine.create('button', 'flex-1 py-4 text-sm font-bold border-b-2 border-indigo-600 text-indigo-600', { id: 'dinas-tab-cam', onClick: () => switchScannerTab('cam') }, ['Kamera Live']),
+                DOM_Engine.create('button', 'flex-1 py-4 text-sm font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-600 transition-colors', { id: 'dinas-tab-file', onClick: () => switchScannerTab('file') }, ['Upload Gambar'])
+            ]),
+            DOM_Engine.create('div', 'p-4', { id: 'dinas-area-cam' }, [
+                DOM_Engine.create('div', 'w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center min-h-[250px] shadow-inner', { id: 'dinas-reader' })
+            ]),
+            DOM_Engine.create('div', 'p-6 hidden', { id: 'dinas-area-file' }, [
+                DOM_Engine.create('div', 'border-2 border-dashed border-indigo-200 rounded-2xl bg-indigo-50/50 p-10 flex flex-col items-center justify-center', {}, [
+                    DOM_Engine.create('i', 'fa-solid fa-image text-5xl text-indigo-300 mb-4'),
+                    DOM_Engine.create('input', 'block w-full text-sm text-slate-500 mt-4 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all', { type: 'file', accept: 'image/*', onChange: action_processImageFile })
+                ])
+            ])
+        ])
+    ]);
+
+    root.appendChild(overlay);
+    root.appendChild(sidebar);
+    root.appendChild(scrollArea);
+    root.appendChild(modalScanner);
+
+  // [UPDATE KILLER UI]: Smart Auto-Routing Berdasarkan Otoritas (Role)
+    if (isSuperAdmin) {
+        sysNavigateTo(renderWorkspace_MasterDB, 'menu-master');
+    } else {
+        sysNavigateTo(renderWorkspace_Dinas, 'menu-dinas');
+    }
+  }
+
+function toggleSidebar() {
+    SysState.ui.sidebarOpen = !SysState.ui.sidebarOpen;
+    document.getElementById('nav-sidebar').classList.toggle('-translate-x-full');
+    const overlay = document.getElementById('nav-overlay');
+    overlay.classList.toggle('opacity-0');
+    overlay.classList.toggle('pointer-events-none');
+}
+
+// ==========================================================
+// [NEW ENGINE] SISTEM NAVIGASI & MANAJER MENU AKTIF
+// ==========================================================
+
+function sysNavigateTo(workspaceFunc, activeId) {
+    // 1. Auto-Tutup sidebar jika digunakan di layar HP
+    if (window.innerWidth < 1024 && SysState.ui.sidebarOpen) {
+        toggleSidebar();
+    }
+    
+    // 2. Eksekusi fungsi perubahan halaman
+    if(typeof workspaceFunc === 'function') workspaceFunc();
+
+    // 3. Modifikasi warna menu (Active State Manager)
+    sysUpdateActiveMenu(activeId);
+}
+
+function sysUpdateActiveMenu(activeId) {
+  const menuIds = ['menu-dinas', 'menu-log-pribadi', 'menu-cetak-deklarasi', 'menu-master', 'menu-karyawan', 'menu-live-tracking', 'menu-approval', 'menu-rekap'];
+
+    menuIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        const iconEl = el.querySelector('i');
+
+        if (id === activeId) {
+            // Berikan warna Gradasi Biru Bercahaya untuk Menu yang Aktif
+            el.className = 'sys-menu-item flex items-center gap-4 px-6 py-4 mx-4 rounded-2xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-lg shadow-indigo-500/30 cursor-pointer transition-transform hover:-translate-y-1 mt-2';
+            if (iconEl) iconEl.classList.remove('text-slate-400', 'group-hover:text-indigo-500', 'transition-colors');
+        } else {
+            // Berikan warna transparan untuk Menu yang tidak aktif
+            el.className = 'sys-menu-item flex items-center gap-4 px-6 py-3.5 mx-4 rounded-2xl font-semibold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 cursor-pointer mt-2 transition-all group border border-transparent hover:border-indigo-100';
+            if (iconEl) iconEl.classList.add('text-slate-400', 'group-hover:text-indigo-500', 'transition-colors');
+        }
+    });
+}
+
+function renderWorkspace_Dinas() {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    if (SysState.dinas.isActive) {
+        container.appendChild(buildCard_ActiveDinas());
+        SysState.dinas.isLocValid = false; 
+        SysState.dinas.isBarcodeValid = false;
+        action_getGPS('dinas-txt-gps-pulang', 'dinas-icn-gps-pulang');
+    } else {
+        container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center py-12', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-circle-notch fa-spin text-3xl text-blue-600 mb-4'),
+            DOM_Engine.create('p', 'text-slate-500 font-medium', {}, ['Mempersiapkan Form & Riwayat...'])
+        ]));
+
+        google.script.run
+            .withSuccessHandler((res) => {
+                DOM_Engine.clear('nav-workspace');
+                if (res.status === "success") {
+                    
+                    // [UPDATE KILLER FIX]: Deteksi Active Trip Langsung dari Server!
+                    if (res.data.activeTrip) {
+                        SysState.dinas.isActive = true;
+                        SysState.dinas.data = res.data.activeTrip;
+                        localStorage.setItem('cepu_dinas_state', JSON.stringify(res.data.activeTrip));
+                        renderWorkspace_Dinas(); // Putar balik render menjadi Mode Aktif
+                        return;
+                    }
+
+                    const userRole = SysState.user.jabatan.toUpperCase();
+                    const userLoc = SysState.user.lokasi.toUpperCase();
+                    
+                    if (userRole === 'SALES' || userLoc === 'SALES') {
+                        container.appendChild(buildForm_Sales(res.data));
+                    } else {
+                        container.appendChild(buildForm_NewDinas(res.data));
+                    }
+                    
+                    action_getGPS('dinas-txt-gps', 'dinas-icn-gps');
+                } else {
+                    sysShowToast("Gagal memuat data: " + res.message, "error");
+                }
+            })
+            .api_getInitFormData(SysState.user); 
+    }
+}
+
+// ==========================================================
+// KUMPULAN FUNGSI KHUSUS DASHBOARD SALES
+// ==========================================================
+
+
+
+function checkEligibility_Berangkat() {
+    const btn = document.getElementById('dinas-btn-submit');
+    if (btn && SysState.dinas.isLocValid && SysState.dinas.isBarcodeValid) {
+        btn.removeAttribute('disabled'); btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+}
+
+function checkEligibility_Pulang() {
+    const btn = document.getElementById('dinas-btn-pulang');
+    // [UPDATE] Tambahan cek isBarcodeValid
+    if (btn && SysState.dinas.isLocValid && SysState.dinas.isBarcodeValid) {
+        btn.removeAttribute('disabled'); btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+}
+
+function action_getGPS(textId, iconId) {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                SysState.dinas.kordinat = `${pos.coords.latitude}, ${pos.coords.longitude}`;
+                SysState.dinas.isLocValid = true;
+                const txtGps = document.getElementById(textId);
+                if(txtGps) {
+                    txtGps.textContent = `Akurasi: ${pos.coords.accuracy.toFixed(1)}m`;
+                    txtGps.className = 'text-sm font-semibold text-emerald-600';
+                    document.getElementById(iconId).className = "fa-solid fa-location-dot text-emerald-500 text-lg";
+                }
+                if(SysState.dinas.isActive) checkEligibility_Pulang(); else checkEligibility_Berangkat();
+            },
+            () => { sysShowToast("GPS gagal/ditolak.", "error"); }, { enableHighAccuracy: true }
+        );
+    }
+}
+
+let localHtml5QrCode = null;
+
+function switchScannerTab(tab) {
+    const tC = document.getElementById('dinas-tab-cam'), tF = document.getElementById('dinas-tab-file');
+    const aC = document.getElementById('dinas-area-cam'), aF = document.getElementById('dinas-area-file');
+
+    if (tab === 'cam') {
+        tC.className = "flex-1 py-3 text-sm font-semibold border-b-2 border-blue-600 text-blue-600";
+        tF.className = "flex-1 py-3 text-sm font-semibold border-b-2 border-transparent text-slate-500";
+        aC.classList.remove('hidden'); aF.classList.add('hidden'); action_startCamera();
+    } else {
+        tF.className = "flex-1 py-3 text-sm font-semibold border-b-2 border-blue-600 text-blue-600";
+        tC.className = "flex-1 py-3 text-sm font-semibold border-b-2 border-transparent text-slate-500";
+        aF.classList.remove('hidden'); aC.classList.add('hidden');
+        if (localHtml5QrCode && localHtml5QrCode.isScanning) { localHtml5QrCode.stop().catch(()=>{}); }
+    }
+}
+
+function action_openScanner() {
+    const m = document.getElementById('dinas-modal'); const mc = document.getElementById('dinas-modal-content');
+    m.classList.remove('hidden'); void m.offsetWidth; m.classList.remove('opacity-0'); mc.classList.remove('scale-95');
+    if (!localHtml5QrCode) localHtml5QrCode = new Html5Qrcode("dinas-reader");
+    switchScannerTab('cam');
+}
+
+function action_startCamera() {
+    if (!localHtml5QrCode || localHtml5QrCode.isScanning) return;
+    Html5Qrcode.getCameras().then(devices => {
+        if (devices && devices.length) {
+            let cameraId = devices[0].id; 
+            for (let i = 0; i < devices.length; i++) {
+                if (devices[i].label.toLowerCase().includes("back") || devices[i].label.toLowerCase().includes("belakang")) { cameraId = devices[i].id; break; }
+            }
+            localHtml5QrCode.start(cameraId, { fps: 10, qrbox: 250 }, processScanResult, () => {}).catch(() => { switchScannerTab('file'); });
+        } else { switchScannerTab('file'); }
+    }).catch(() => { switchScannerTab('file'); });
+}
+
+function action_processImageFile(e) {
+    if (e.target.files.length == 0) return;
+    if (!localHtml5QrCode) localHtml5QrCode = new Html5Qrcode("dinas-reader");
+    sysShowToast("Memproses gambar...", "info");
+    localHtml5QrCode.scanFile(e.target.files[0], true)
+        .then(decodedText => { processScanResult(decodedText); })
+        .catch(() => { sysShowToast("Barcode tidak ditemukan.", "error"); });
+    e.target.value = ""; 
+}
+
+function processScanResult(decodedText) {
+    if (decodedText === "POS-SECURITY-FSET-01") {
+        action_closeScanner(); SysState.dinas.isBarcodeValid = true;
+        const txtBarcode = document.getElementById('dinas-txt-barcode');
+        if (txtBarcode) {
+            txtBarcode.className = "text-sm text-emerald-600 font-bold mt-2 mb-4";
+            txtBarcode.innerHTML = '<i class="fa-solid fa-check-circle"></i> Barcode Valid (POS-SECURITY-FSET-01)';
+        }
+        // [UPDATE] Cek trigger berdasarkan mode aktif (Pulang atau Berangkat)
+        if (SysState.dinas.isActive) checkEligibility_Pulang(); 
+        else checkEligibility_Berangkat();
+        
+        sysShowToast("Barcode Diterima", "success");
+    } else { sysShowToast("Barcode Salah!", "error"); }
+}
+
+function action_closeScanner() {
+    const m = document.getElementById('dinas-modal'); const mc = document.getElementById('dinas-modal-content');
+    m.classList.add('opacity-0'); mc.classList.add('scale-95');
+    setTimeout(() => { m.classList.add('hidden'); if (localHtml5QrCode && localHtml5QrCode.isScanning) { localHtml5QrCode.stop().catch(()=>{}); } }, 300);
+}
+
+function action_submitDinas(e) {
+    e.preventDefault();
+    if (!SysState.dinas.isLocValid || !SysState.dinas.isBarcodeValid) return;
+    const btn = document.getElementById('dinas-btn-submit');
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Memproses Keberangkatan...'; btn.disabled = true;
+
+    const payload = { 
+      noST: document.getElementById('dinas-inp-nost').value, 
+      customer: document.getElementById('dinas-inp-cust').value, 
+      lokasi: document.getElementById('dinas-inp-lokasi').value, 
+      kordinat: SysState.dinas.kordinat,
+      statusAbsensi: document.getElementById('dinas-sel-status').value // NEW: Kirim Status Absensi
+    };
+
+    google.script.run
+        .withSuccessHandler((res) => {
+            if(res.status === "success") { 
+                sysShowToast("Berangkat! Hati-hati.", "success"); 
+                SysState.dinas.isActive = true; 
+                SysState.dinas.data = res.data; 
+                localStorage.setItem('cepu_dinas_state', JSON.stringify(res.data));
+                renderWorkspace_Dinas(); 
+            } else { sysShowToast(res.message, "error"); btn.innerHTML = 'Mulai Perjalanan'; btn.disabled = false; }
+        })
+        .api_submitPerjalananDinas(payload, SysState.user);
+}
+
+
+function action_submitPulang() {
+    // [UPDATE] Penolakan jika barcode belum discan
+    if (!SysState.dinas.isLocValid || !SysState.dinas.isBarcodeValid) return;
+    
+    const btn = document.getElementById('dinas-btn-pulang');
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Proses Kepulangan...'; btn.disabled = true;
+
+    const payload = { idTransaksi: SysState.dinas.data.idTransaksi, kordinatMasuk: SysState.dinas.kordinat };
+
+    google.script.run
+        .withSuccessHandler((res) => {
+            if(res.status === "success") { 
+                sysShowToast(`Selesai! Durasi: ${res.data.durasi} Jam | UPD: Rp${res.data.nominal}`, "success"); 
+                SysState.dinas.isActive = false; SysState.dinas.data = null; SysState.dinas.isBarcodeValid = false;
+                localStorage.removeItem('cepu_dinas_state');
+                renderWorkspace_Dinas(); 
+            } else { sysShowToast(res.message, "error"); btn.innerHTML = 'Absen Selesai (Pulang)'; btn.disabled = false; }
+        })
+        .api_submitPulangDinas(payload, SysState.user);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const uS = localStorage.getItem('cepu_session'), dS = localStorage.getItem('cepu_dinas_state');
+    if (uS) { 
+        SysState.user = JSON.parse(uS); 
+        if (dS) { SysState.dinas.isActive = true; SysState.dinas.data = JSON.parse(dS); }
+        renderView_MainLayout(); 
+    } else { renderView_Login(); }
+});
+
+// 1. FUNGSI UNTUK FORM KEBERANGKATAN
+function buildForm_NewDinas(initData = { statusOptions: [], historyST: [] }) {
+    const isSuperAdmin = (SysState.user.jabatan === 'Super Admin' || SysState.user.jabatan === 'Administrator');
+    
+    const createField = (label, id, placeholder, extProps = {}) => DOM_Engine.create('div', '', {}, [
+        DOM_Engine.create('label', 'block text-sm font-semibold text-slate-700 mb-1.5', {}, [label]),
+        DOM_Engine.create('input', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5', { type: 'text', id: id, placeholder: placeholder, required: 'true', ...extProps })
+    ]);
+
+    const optElements = initData.statusOptions.map(opt => DOM_Engine.create('option', '', { value: opt.code }, [ `${opt.code} - ${opt.desc}` ]));
+    const selStatus = DOM_Engine.create('select', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 appearance-none', { id: 'dinas-sel-status', required: 'true' }, optElements);
+    const groupStatus = DOM_Engine.create('div', 'relative', {}, [
+        DOM_Engine.create('label', 'block text-sm font-semibold text-slate-700 mb-1.5', {}, ['Status Kehadiran']),
+        selStatus,
+        DOM_Engine.create('i', 'fa-solid fa-chevron-down absolute right-4 top-[42px] text-slate-400 pointer-events-none')
+    ]);
+
+    const stOptions = initData.historyST.map(h => DOM_Engine.create('option', '', { value: h.noST }));
+    const stDataList = DOM_Engine.create('datalist', '', { id: 'list-history-st' }, stOptions);
+
+    const fNoST = DOM_Engine.create('div', '', {}, [
+        DOM_Engine.create('label', 'block text-sm font-semibold text-slate-700 mb-1.5', {}, ['Nomor ST']),
+        DOM_Engine.create('input', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5', { 
+            type: 'text', id: 'dinas-inp-nost', placeholder: 'Contoh: 0982', required: 'true', list: 'list-history-st', autocomplete: 'off',
+            onInput: function(e) {
+                const val = this.value.trim();
+                const found = initData.historyST.find(h => h.noST === val);
+                if (found) {
+                    document.getElementById('dinas-inp-cust').value = found.customer;
+                    document.getElementById('dinas-inp-lokasi').value = found.lokasi;
+                }
+            }
+        }),
+        stDataList
+    ]);
+
+    const fCust = createField('Nama Customer', 'dinas-inp-cust', 'MAJU BERSAMA', {
+        onInput: function() { this.value = this.value.toUpperCase(); },
+        onBlur: function() {
+            let val = this.value.trim();
+            if (val.length > 0 && !val.startsWith('PT. ')) { this.value = 'PT. ' + val.replace(/^PT\.?\s*/i, ''); }
+        }
+    });
+
+    const fLokasi = createField('Area / Lokasi', 'dinas-inp-lokasi', 'Contoh: Cikarang', {
+        onInput: function() { this.value = this.value.toUpperCase(); } 
+    });
+
+    const gpsBox = DOM_Engine.create('div', 'flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl', {}, [
+        DOM_Engine.create('div', 'flex items-center gap-3', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-location-dot text-slate-400 text-lg', {id: 'dinas-icn-gps'}),
+            DOM_Engine.create('span', 'text-sm font-medium text-slate-600', {id: 'dinas-txt-gps'}, ['Mencari GPS...'])
+        ]),
+        DOM_Engine.create('button', 'text-sm bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm', { type: 'button', onClick: () => action_getGPS('dinas-txt-gps', 'dinas-icn-gps') }, ['Refresh'])
+    ]);
+
+    const scanBtn = DOM_Engine.create('button', 'w-full flex justify-center gap-2 bg-slate-800 hover:bg-slate-900 transition-colors text-white py-3.5 rounded-xl font-semibold mt-4', { type: 'button', onClick: action_openScanner }, [DOM_Engine.create('i', 'fa-solid fa-qrcode'), ' Buka Scanner (Kamera/File)']);
+    const scanStatus = DOM_Engine.create('p', 'text-xs text-red-500 mt-2 font-medium', {id: 'dinas-txt-barcode'}, ['*Wajib scan barcode pos (POS-SECURITY-FSET-01)']);
+
+    let bypassBtn = null;
+    if (isSuperAdmin) {
+        bypassBtn = DOM_Engine.create('button', 'w-full mt-2 py-2 text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100', { 
+            type: 'button', 
+            onClick: () => {
+                SysState.dinas.isLocValid = true; SysState.dinas.isBarcodeValid = true; SysState.dinas.kordinat = "BYPASS_ADMIN";
+                document.getElementById('dinas-txt-barcode').className = "text-sm text-amber-600 font-bold mt-2";
+                document.getElementById('dinas-txt-barcode').innerHTML = '<i class="fa-solid fa-crown"></i> Barcode Bypassed';
+                checkEligibility_Berangkat(); sysShowToast("Protokol Bypass Aktif!", "success");
+            } 
+        }, ['[SUPER ADMIN] Bypass Validasi Berangkat']);
+    }
+
+    // [BUG FIX]: Warna background Tailwind murni disuntikkan (bg-blue-600)
+    const btnSubmit = DOM_Engine.create('button', 'bg-blue-600 hover:bg-blue-700 w-full text-white py-4 rounded-xl font-bold text-lg mt-8 opacity-50 cursor-not-allowed flex justify-center gap-2 shadow-md transition-colors', { type: 'submit', id: 'dinas-btn-submit', disabled: 'true' }, [DOM_Engine.create('i', 'fa-solid fa-paper-plane'), ' Mulai Perjalanan']);
+
+    return DOM_Engine.create('div', 'bg-white p-6 sm:p-8 rounded-3xl shadow-premium fade-in border border-slate-100', {}, [
+        DOM_Engine.create('h2', 'text-2xl font-bold text-slate-800 mb-6', {}, ['Form Keberangkatan']),
+        DOM_Engine.create('form', 'space-y-5', { onSubmit: action_submitDinas }, [groupStatus, fNoST, fCust, fLokasi, DOM_Engine.create('div', 'pt-4 border-t', {}, [DOM_Engine.create('label', 'block text-sm font-semibold mb-1', {}, ['Status GPS']), gpsBox]), DOM_Engine.create('div', '', {}, [scanBtn, scanStatus, bypassBtn]), btnSubmit])
+    ]);
+}
+
+// 2. FUNGSI UNTUK CARD KEPULANGAN
+function buildCard_ActiveDinas() {
+    const isSuperAdmin = (SysState.user.jabatan === 'Super Admin' || SysState.user.jabatan === 'Administrator');
+    
+    const iconHeader = DOM_Engine.create('div', 'text-center border-b border-slate-100 pb-6 mb-6', {}, [
+        DOM_Engine.create('div', 'w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-4', {}, [DOM_Engine.create('i', 'fa-solid fa-car-side')]),
+        DOM_Engine.create('h2', 'text-2xl font-bold text-slate-800', {}, ['Sedang Dalam Perjalanan']),
+        DOM_Engine.create('p', 'text-sm font-medium text-blue-600 mt-1', {}, ['Status: ' + SysState.dinas.data.statusAbsensi + ' | Keluar: ' + SysState.dinas.data.waktuKeluar])
+    ]);
+
+    const infoGrid = DOM_Engine.create('div', 'grid grid-cols-2 gap-4 mb-6', {}, [
+        DOM_Engine.create('div', 'bg-slate-50 p-4 rounded-xl border border-slate-100', {}, [DOM_Engine.create('p', 'text-xs text-slate-400 font-semibold', {}, ['CUSTOMER']), DOM_Engine.create('p', 'text-sm font-bold text-slate-800', {}, [SysState.dinas.data.customer])]),
+        DOM_Engine.create('div', 'bg-slate-50 p-4 rounded-xl border border-slate-100', {}, [DOM_Engine.create('p', 'text-xs text-slate-400 font-semibold', {}, ['LOKASI']), DOM_Engine.create('p', 'text-sm font-bold text-slate-800', {}, [SysState.dinas.data.lokasi])])
+    ]);
+
+    const gpsBoxPulang = DOM_Engine.create('div', 'flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4', {}, [
+        DOM_Engine.create('div', 'flex items-center gap-3', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-location-dot text-slate-400 text-lg', {id: 'dinas-icn-gps-pulang'}),
+            DOM_Engine.create('span', 'text-sm font-medium text-slate-600', {id: 'dinas-txt-gps-pulang'}, ['Mencari GPS Kepulangan...'])
+        ]),
+        DOM_Engine.create('button', 'text-sm bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm', { type: 'button', onClick: () => action_getGPS('dinas-txt-gps-pulang', 'dinas-icn-gps-pulang') }, ['Refresh'])
+    ]);
+
+    const scanBtn = DOM_Engine.create('button', 'w-full flex justify-center gap-2 bg-slate-800 hover:bg-slate-900 transition-colors text-white py-3.5 rounded-xl font-semibold mb-2', { type: 'button', onClick: action_openScanner }, [DOM_Engine.create('i', 'fa-solid fa-qrcode'), ' Buka Scanner Kepulangan']);
+    const scanStatus = DOM_Engine.create('p', 'text-xs text-red-500 mb-4 font-medium', {id: 'dinas-txt-barcode'}, ['*Wajib scan barcode pos (POS-SECURITY-FSET-01)']);
+
+    let bypassBtn = null;
+    if (isSuperAdmin) {
+        bypassBtn = DOM_Engine.create('button', 'w-full mb-4 py-2 text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg', { 
+            type: 'button', 
+            onClick: () => {
+                SysState.dinas.isLocValid = true; SysState.dinas.isBarcodeValid = true; SysState.dinas.kordinat = "BYPASS_ADMIN";
+                document.getElementById('dinas-txt-gps-pulang').className = "text-sm text-amber-600 font-bold";
+                document.getElementById('dinas-txt-gps-pulang').innerHTML = '<i class="fa-solid fa-crown"></i> GPS Bypassed';
+                document.getElementById('dinas-txt-barcode').className = "text-sm text-amber-600 font-bold mb-4";
+                document.getElementById('dinas-txt-barcode').innerHTML = '<i class="fa-solid fa-crown"></i> Barcode Bypassed';
+                checkEligibility_Pulang(); sysShowToast("Validasi Kepulangan Bypassed!", "success");
+            } 
+        }, ['[SUPER ADMIN] Bypass GPS & Barcode Pulang']);
+    }
+
+    // [BUG FIX]: Warna background Tailwind murni disuntikkan (bg-blue-600)
+    const btnPulang = DOM_Engine.create('button', 'bg-blue-600 hover:bg-blue-700 w-full text-white py-4 rounded-xl font-bold text-lg opacity-50 cursor-not-allowed flex justify-center gap-2 shadow-md transition-colors', { 
+        id: 'dinas-btn-pulang', disabled: 'true', onClick: action_submitPulang 
+    }, [DOM_Engine.create('i', 'fa-solid fa-house-chimney'), ' Absen Selesai (Pulang)']);
+
+    return DOM_Engine.create('div', 'bg-white p-6 sm:p-8 rounded-3xl shadow-premium fade-in border border-slate-100', {}, [
+        iconHeader, infoGrid, 
+        DOM_Engine.create('label', 'block text-sm font-semibold mb-1 text-slate-700', {}, ['Validasi Lokasi & Barcode Kepulangan']), 
+        gpsBoxPulang, scanBtn, scanStatus, bypassBtn, btnPulang 
+    ]);
+}
+
+// 3. FUNGSI UNTUK FORM SALES
+function buildForm_Sales(initData = { statusOptions: [] }) {
+    const isSuperAdmin = (SysState.user.jabatan === 'Super Admin' || SysState.user.jabatan === 'Administrator');
+
+    const optElements = initData.statusOptions.map(opt => DOM_Engine.create('option', '', { value: opt.code }, [ `${opt.code} - ${opt.desc}` ]));
+    
+    const selStatus = DOM_Engine.create('select', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 appearance-none', { 
+        id: 'sales-sel-status', required: 'true',
+        onChange: function(e) {
+            const val = this.value;
+            const extraFields = document.getElementById('sales-extra-fields');
+            if (val === 'VC' || val === 'ST') {
+                extraFields.classList.remove('hidden');
+            } else {
+                extraFields.classList.add('hidden');
+            }
+        }
+    }, optElements);
+    
+    const groupStatus = DOM_Engine.create('div', 'relative', {}, [
+        DOM_Engine.create('label', 'block text-sm font-semibold text-slate-700 mb-1.5', {}, ['Status Kehadiran (Sales)']),
+        selStatus,
+        DOM_Engine.create('i', 'fa-solid fa-chevron-down absolute right-4 top-[42px] text-slate-400 pointer-events-none')
+    ]);
+
+    const fCust = DOM_Engine.create('div', '', {}, [
+        DOM_Engine.create('label', 'block text-sm font-semibold text-slate-700 mb-1.5', {}, ['Nama Customer']),
+        DOM_Engine.create('input', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5', { 
+            type: 'text', id: 'sales-inp-cust', placeholder: 'MAJU BERSAMA',
+            onInput: function() { this.value = this.value.toUpperCase(); },
+            onBlur: function() {
+                let val = this.value.trim();
+                if (val.length > 0 && !val.startsWith('PT. ')) { this.value = 'PT. ' + val.replace(/^PT\.?\s*/i, ''); }
+            }
+        })
+    ]);
+    
+    const fLokasi = DOM_Engine.create('div', '', {}, [
+        DOM_Engine.create('label', 'block text-sm font-semibold text-slate-700 mb-1.5', {}, ['Area / Lokasi Tujuan']),
+        DOM_Engine.create('input', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5', { 
+            type: 'text', id: 'sales-inp-lokasi', placeholder: 'Contoh: Cikarang',
+            onInput: function() { this.value = this.value.toUpperCase(); }
+        })
+    ]);
+    
+    const extraFieldsContainer = DOM_Engine.create('div', 'space-y-5 hidden fade-in mt-5 pt-5 border-t border-slate-100', { id: 'sales-extra-fields' }, [fCust, fLokasi]);
+
+    const gpsBox = DOM_Engine.create('div', 'flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl', {}, [
+        DOM_Engine.create('div', 'flex items-center gap-3', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-location-dot text-slate-400 text-lg', {id: 'dinas-icn-gps'}),
+            DOM_Engine.create('span', 'text-sm font-medium text-slate-600', {id: 'dinas-txt-gps'}, ['Mencari GPS...'])
+        ]),
+        DOM_Engine.create('button', 'text-sm bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm', { type: 'button', onClick: () => action_getGPS('dinas-txt-gps', 'dinas-icn-gps') }, ['Refresh'])
+    ]);
+
+    const scanBtn = DOM_Engine.create('button', 'w-full flex justify-center gap-2 bg-slate-800 hover:bg-slate-900 transition-colors text-white py-3.5 rounded-xl font-semibold mt-4', { type: 'button', onClick: action_openScanner }, [DOM_Engine.create('i', 'fa-solid fa-qrcode'), ' Buka Scanner (Kamera/File)']);
+    const scanStatus = DOM_Engine.create('p', 'text-xs text-red-500 mt-2 font-medium', {id: 'dinas-txt-barcode'}, ['*Wajib scan barcode pos (POS-SECURITY-FSET-01)']);
+
+    let bypassBtn = null;
+    if (isSuperAdmin) {
+        bypassBtn = DOM_Engine.create('button', 'w-full mt-2 py-2 text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100', { 
+            type: 'button', 
+            onClick: () => {
+                SysState.dinas.isLocValid = true; SysState.dinas.isBarcodeValid = true; SysState.dinas.kordinat = "BYPASS_ADMIN";
+                document.getElementById('dinas-txt-barcode').className = "text-sm text-amber-600 font-bold mt-2";
+                document.getElementById('dinas-txt-barcode').innerHTML = '<i class="fa-solid fa-crown"></i> Barcode Bypassed';
+                checkEligibility_Berangkat(); sysShowToast("Protokol Bypass Aktif!", "success");
+            } 
+        }, ['[SUPER ADMIN] Bypass Validasi Berangkat']);
+    }
+
+    // [BUG FIX]: Warna background Tailwind murni disuntikkan (bg-blue-600)
+    const btnSubmit = DOM_Engine.create('button', 'bg-blue-600 hover:bg-blue-700 w-full text-white py-4 rounded-xl font-bold text-lg mt-8 opacity-50 cursor-not-allowed flex justify-center gap-2 shadow-md transition-colors', { type: 'submit', id: 'dinas-btn-submit', disabled: 'true' }, [DOM_Engine.create('i', 'fa-solid fa-paper-plane'), ' Mulai Absensi Sales']);
+
+    setTimeout(() => {
+        if(selStatus.value === 'VC' || selStatus.value === 'ST') extraFieldsContainer.classList.remove('hidden');
+    }, 100);
+
+    return DOM_Engine.create('div', 'bg-white p-6 sm:p-8 rounded-3xl shadow-premium fade-in border border-slate-100 border-t-4 border-t-blue-500', {}, [
+        DOM_Engine.create('h2', 'text-2xl font-bold text-slate-800 mb-2', {}, ['Dashboard Absensi Sales']),
+        DOM_Engine.create('p', 'text-sm text-slate-500 mb-6', {}, ['Modul aktivitas khusus untuk tim Sales.']),
+        DOM_Engine.create('form', 'space-y-5', { onSubmit: action_submitDinas_Sales }, [
+            groupStatus, 
+            extraFieldsContainer, 
+            DOM_Engine.create('div', 'pt-4 border-t', {}, [DOM_Engine.create('label', 'block text-sm font-semibold mb-1', {}, ['Status GPS']), gpsBox]), 
+            DOM_Engine.create('div', '', {}, [scanBtn, scanStatus, bypassBtn]), 
+            btnSubmit
+        ])
+    ]);
+}
+
+function action_submitDinas_Sales(e) {
+    e.preventDefault();
+    if (!SysState.dinas.isLocValid || !SysState.dinas.isBarcodeValid) return;
+    
+    // [UPDATE] Validasi Manual Ekstra untuk VC dan ST
+    const statusTerpilih = document.getElementById('sales-sel-status').value;
+    let customerValue = "-";
+    let lokasiValue = "-";
+
+    if (statusTerpilih === 'VC' || statusTerpilih === 'ST') {
+        customerValue = document.getElementById('sales-inp-cust').value.trim();
+        lokasiValue = document.getElementById('sales-inp-lokasi').value.trim();
+        if (customerValue === "" || lokasiValue === "") {
+            sysShowToast("Peringatan: Nama Customer dan Lokasi wajib diisi untuk status VC/ST!", "error");
+            return; // Blokir jika kosong
+        }
+    }
+
+    const btn = document.getElementById('dinas-btn-submit');
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Memproses Absensi...'; btn.disabled = true;
+
+    const payload = { 
+      noST: "SALES-ABSENSI", 
+      customer: customerValue, 
+      lokasi: lokasiValue, 
+      kordinat: SysState.dinas.kordinat,
+      statusAbsensi: statusTerpilih 
+    };
+
+    google.script.run
+        .withSuccessHandler((res) => {
+            if(res.status === "success") { 
+                sysShowToast("Absensi Sales Berhasil Tercatat!", "success"); 
+                SysState.dinas.isActive = true; 
+                SysState.dinas.data = res.data; 
+                localStorage.setItem('cepu_dinas_state', JSON.stringify(res.data));
+                renderWorkspace_Dinas(); 
+            } else { sysShowToast(res.message, "error"); btn.innerHTML = 'Mulai Absensi Sales'; btn.disabled = false; }
+        })
+        .api_submitPerjalananDinas(payload, SysState.user);
+}
+
+// ==============================================================================
+// MODUL SUPER ADMIN: UNIVERSAL MASTER CRUD ENGINE (PURE DOM BUILDER)
+// ==============================================================================
+
+
+
+function action_loadMasterTable(sheetName) {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+    
+    container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center justify-center py-20 fade-in', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-circle-notch fa-spin text-4xl text-amber-500 mb-4'),
+        DOM_Engine.create('p', 'text-slate-500 font-medium tracking-wide', {}, [`Menarik data dari ${sheetName}...`])
+    ]));
+
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') {
+            renderWorkspace_MasterTable(sheetName, res.data.headers, res.data.rows);
+        } else {
+            sysShowToast(res.message, 'error');
+            renderWorkspace_MasterDB();
+        }
+    }).api_adminGetMaster(sheetName);
+}
+
+// --- CARI DAN GANTI 2 FUNGSI INI DI JS_Dashboard.html ---
+
+function renderWorkspace_MasterTable(sheetName, headers, rows) {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    const btnBack = DOM_Engine.create('button', 'text-slate-500 hover:text-amber-600 font-medium flex items-center gap-2 mb-6 transition-colors', { onClick: renderWorkspace_MasterDB }, [DOM_Engine.create('i', 'fa-solid fa-arrow-left'), ' Kembali ke DB Menu']);
+    
+    const headerTop = DOM_Engine.create('div', 'flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6', {}, [
+        DOM_Engine.create('h2', 'text-2xl font-bold text-slate-800 flex items-center gap-3', {}, [DOM_Engine.create('i', 'fa-solid fa-table-list text-amber-500 text-xl'), sheetName]),
+        // [UPDATE]: Kirim 'rows' agar Modal bisa mengekstrak data Dropdown
+        DOM_Engine.create('button', 'bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center gap-2 transition-transform hover:-translate-y-0.5 shadow-md', { onClick: () => showModal_MasterCRUD(sheetName, headers, null, null, rows) }, [DOM_Engine.create('i', 'fa-solid fa-plus'), ' Tambah Data'])
+    ]);
+
+    const ths = headers.map(h => DOM_Engine.create('th', 'px-5 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap', {}, [h]));
+    ths.push(DOM_Engine.create('th', 'px-5 py-4 text-center text-xs font-bold text-slate-500 uppercase tracking-wider sticky right-0 bg-slate-100 shadow-[-4px_0_6px_-1px_rgba(0,0,0,0.05)] z-10', {}, ['Aksi CRUD']));
+    const thead = DOM_Engine.create('thead', 'bg-slate-100 border-b border-slate-200', {}, [DOM_Engine.create('tr', '', {}, ths)]);
+
+    const trs = rows.map((row, rowIndex) => {
+        const tds = row.map(cell => DOM_Engine.create('td', 'px-5 py-3.5 text-sm font-medium text-slate-700 whitespace-nowrap border-b border-slate-100', {}, [cell.toString()]));
+        // [UPDATE]: Kirim 'rows' juga ke tombol Edit
+        const btnEdit = DOM_Engine.create('button', 'text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-500 w-9 h-9 rounded-lg flex items-center justify-center transition-colors shadow-sm', { onClick: () => showModal_MasterCRUD(sheetName, headers, row, rowIndex, rows) }, [DOM_Engine.create('i', 'fa-solid fa-pen')]);
+        const btnDel = DOM_Engine.create('button', 'text-red-600 hover:text-white bg-red-50 hover:bg-red-500 w-9 h-9 rounded-lg flex items-center justify-center transition-colors shadow-sm', { onClick: () => action_deleteMasterRow(sheetName, rowIndex) }, [DOM_Engine.create('i', 'fa-solid fa-trash')]);
+        const tdAction = DOM_Engine.create('td', 'px-5 py-3.5 border-b border-slate-100 sticky right-0 bg-white shadow-[-4px_0_6px_-1px_rgba(0,0,0,0.05)] z-10', {}, [
+            DOM_Engine.create('div', 'flex items-center justify-center gap-2', {}, [btnEdit, btnDel])
+        ]);
+        tds.push(tdAction); return DOM_Engine.create('tr', 'hover:bg-amber-50/30 transition-colors', {}, tds);
+    });
+
+    const tbody = DOM_Engine.create('tbody', 'bg-white', {}, trs);
+    const table = DOM_Engine.create('table', 'min-w-full relative', {}, [thead, tbody]);
+    const wrapTable = DOM_Engine.create('div', 'overflow-x-auto bg-white rounded-2xl shadow-premium border border-slate-200 max-h-[65vh] relative', {}, [table]);
+    container.appendChild(DOM_Engine.create('div', 'fade-in', {}, [btnBack, headerTop, wrapTable]));
+}
+
+// --- CARI DAN GANTI FUNGSI INI DI JS_Dashboard.html ---
+
+function renderWorkspace_MasterDB() {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    // [UPDATE KILLER UI]: Tipografi dan Spasi Responsif (Menyesuaikan otomatis di Layar HP vs Desktop)
+    const headerSection = DOM_Engine.create('div', 'mb-8 sm:mb-10 fade-in', {}, [
+        DOM_Engine.create('div', 'flex items-center gap-4 mb-2', {}, [
+            DOM_Engine.create('div', 'w-10 sm:w-12 h-1 bg-indigo-600 rounded-full'),
+            DOM_Engine.create('span', 'text-indigo-600 font-extrabold tracking-widest text-[10px] sm:text-xs uppercase', {}, ['Enterprise Control Panel'])
+        ]),
+        DOM_Engine.create('h2', 'text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mb-3', {}, ['Master Command Center']),
+        DOM_Engine.create('p', 'text-sm sm:text-base text-slate-500 max-w-xl leading-relaxed', {}, ['Kelola seluruh parameter sistem C.E.P.U secara terpusat. Perubahan data akan berdampak langsung pada seluruh operasional lapangan.'])
+    ]);
+
+    const sheets = [
+        { name: 'Master_Karyawan', icon: 'fa-users-line', desc: 'Database profil seluruh pekerja.', color: 'from-blue-500 to-indigo-600' },
+        { name: 'Master_Login', icon: 'fa-key', desc: 'Credential & keamanan perangkat.', color: 'from-emerald-500 to-teal-600' },
+        { name: 'Master_UPD', icon: 'fa-money-bill-transfer', desc: 'Aturan kalkulasi uang perjalanan dinas.', color: 'from-amber-500 to-orange-600' },
+        { name: 'Master_Status_Absensi', icon: 'fa-clipboard-check', desc: 'Kode status dan parameter absensi.', color: 'from-rose-500 to-red-600' },
+        { name: 'Master_Latlong', icon: 'fa-map-location-dot', desc: 'Konfigurasi Radius & Validasi GPS area.', color: 'from-purple-500 to-fuchsia-600' }
+    ];
+
+    // [UPDATE KILLER UI]: 
+    // 1. auto-rows-fr: Memaksa semua kartu dalam grid memiliki tinggi yang 100% simetris/sama.
+    // 2. flex-shrink-0: Memastikan kotak Ikon dan Panah tidak akan pernah gepeng di layar HP.
+    // 3. items-center: Membuat text dan icon sejajar sempurna secara vertikal.
+    const grid = DOM_Engine.create('div', 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 auto-rows-fr', {}, sheets.map(s => {
+        return DOM_Engine.create('div', 'glass p-6 sm:p-8 rounded-[1.5rem] sm:rounded-[2rem] shadow-premium hover:shadow-2xl transition-all duration-500 cursor-pointer group relative overflow-hidden flex flex-col h-full', {
+            onClick: () => action_loadMasterTable(s.name)
+        }, [
+            DOM_Engine.create('div', `absolute -right-8 -top-8 w-32 h-32 bg-gradient-to-br ${s.color} opacity-[0.03] rounded-full group-hover:scale-150 transition-transform duration-700 pointer-events-none`),
+            
+            DOM_Engine.create('div', 'flex items-center gap-4 sm:gap-6 relative z-10 flex-1', {}, [
+                
+                DOM_Engine.create('div', `w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 bg-gradient-to-br ${s.color} rounded-2xl flex items-center justify-center text-white shadow-lg group-hover:rotate-6 transition-transform`, {}, [
+                    DOM_Engine.create('i', `fa-solid ${s.icon} text-xl sm:text-2xl`)
+                ]),
+                
+                DOM_Engine.create('div', 'flex-1', {}, [
+                    DOM_Engine.create('h4', 'text-lg sm:text-xl font-bold text-slate-800 mb-1 group-hover:text-indigo-600 transition-colors', {}, [s.name.replace('Master_', '')]),
+                    DOM_Engine.create('p', 'text-xs sm:text-sm text-slate-500 leading-snug', {}, [s.desc])
+                ]),
+                
+                DOM_Engine.create('div', 'w-8 h-8 sm:w-10 sm:h-10 flex-shrink-0 flex items-center justify-center text-slate-300 group-hover:text-indigo-500 transition-colors', {}, [
+                    DOM_Engine.create('i', 'fa-solid fa-arrow-right-long')
+                ])
+
+            ])
+        ]);
+    }));
+
+    container.appendChild(DOM_Engine.create('div', 'bg-aurora min-h-screen p-2', {}, [headerSection, grid]));
+}
+
+function showModal_MasterCRUD(sheetName, headers, rowData, rowIndex, allRows) {
+    const isEdit = rowData !== null;
+    const safeRowIndex = isEdit ? rowIndex : -1; 
+
+    function getUniqueOptions(colIndex) {
+        const options = new Set();
+        if (allRows) {
+            allRows.forEach(r => {
+                let val = r[colIndex];
+                if (val !== undefined && val !== null && val.toString().trim() !== "") {
+                    options.add(val.toString().trim().toUpperCase());
+                }
+            });
+        }
+        return Array.from(options).sort();
+    }
+
+    const inputs = headers.map((h, i) => {
+        let val = isEdit ? rowData[i] : '';
+        let inputEl;
+        let dataListEl = null;
+        const hUpper = h.toUpperCase();
+        
+        // [UPDATE MULTI-ROUTING]: Cek apakah ini kolom Dropdown untuk Karyawan atau Latlong
+        const isKaryawanDropdown = sheetName === 'Master_Karyawan' && ['JABATAN', 'GOLONGAN', 'STATUS_KARYAWAN', 'DEPARTEMEN', 'LOKASI'].includes(hUpper);
+        const isLatlongDropdown = sheetName === 'Master_Latlong' && ['LOKASI', 'STATUS_LATLONG'].includes(hUpper);
+        
+        if (isKaryawanDropdown || isLatlongDropdown) {
+            let uniqueOptions = getUniqueOptions(i);
+            
+            // [KILLER FEATURE]: Injeksi Opsi Kaku untuk STATUS_LATLONG
+            if (hUpper === 'STATUS_LATLONG') {
+                uniqueOptions = ['AKTIF', 'NON AKTIF'];
+            }
+
+            const listId = `list-${sheetName}-${hUpper}-${i}`; 
+            
+            const optElements = uniqueOptions.map(opt => DOM_Engine.create('option', '', { value: opt }));
+            dataListEl = DOM_Engine.create('datalist', '', { id: listId }, optElements);
+
+            inputEl = DOM_Engine.create('input', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 font-bold', { 
+                type: 'text', value: val, 'data-crud-field': i, placeholder: `Pilih atau ketik ${h}...`, 
+                required: 'true', list: listId, autocomplete: 'off',
+                onInput: function() { this.value = this.value.toUpperCase(); } 
+            });
+        } else {
+            // Field lainnya (seperti LAT, LONG, RADIUS MAX) akan menggunakan Text Input biasa
+            inputEl = DOM_Engine.create('input', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 font-medium', { 
+                type: 'text', value: val, 'data-crud-field': i, placeholder: `Isi ${h}...`, required: 'true' 
+            });
+        }
+
+        const wrapperChildren = [ DOM_Engine.create('label', 'block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide', {}, [h]), inputEl ];
+        if (dataListEl) wrapperChildren.push(dataListEl);
+        return DOM_Engine.create('div', '', {}, wrapperChildren);
+    });
+
+    const formId = 'form-crud-master-data';
+
+    const btnCancel = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors', { type: 'button', onClick: () => document.getElementById('crud-modal').remove() }, ['Batal']);
+    
+    const btnSave = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5', { 
+        type: 'submit', id: 'btn-crud-save', form: formId 
+    }, [DOM_Engine.create('i', 'fa-solid fa-cloud-arrow-up'), isEdit ? 'Simpan Perubahan' : 'Rekam Entitas Baru']);
+
+    const form = DOM_Engine.create('form', 'space-y-4 max-h-[60vh] overflow-y-auto px-6 py-6 hide-scrollbar', { 
+        id: formId, 
+        onSubmit: (e) => {
+            e.preventDefault();
+            const payload = [];
+            for (let i = 0; i < headers.length; i++) {
+                const field = document.querySelector(`[data-crud-field="${i}"]`);
+                payload.push(field ? field.value.trim() : "");
+            }
+            
+            if (payload[0] === "") {
+                sysShowToast("Gagal: Kolom pertama tidak boleh kosong!", "error");
+                return;
+            }
+
+            action_saveMasterRow(sheetName, isEdit ? "UPDATE" : "CREATE", payload, safeRowIndex);
+        }
+    }, [...inputs]);
+
+    const modalContent = DOM_Engine.create('div', 'bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100', {}, [
+        DOM_Engine.create('div', 'p-5 border-b border-slate-100 flex justify-between bg-slate-50/50', {}, [
+            DOM_Engine.create('h3', 'font-extrabold text-slate-800 text-lg', {}, [isEdit ? 'Ubah Data' : 'Tambah Entitas Baru']),
+            DOM_Engine.create('button', 'text-slate-400 hover:text-red-500', { type: 'button', onClick: () => document.getElementById('crud-modal').remove() }, [DOM_Engine.create('i', 'fa-solid fa-times text-lg')])
+        ]),
+        form, 
+        DOM_Engine.create('div', 'p-5 border-t bg-slate-50 flex flex-col sm:flex-row justify-end gap-3', {}, [btnCancel, btnSave]) 
+    ]);
+
+    document.body.appendChild(DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4', { id: 'crud-modal' }, [modalContent]));
+}
+
+function action_saveMasterRow(sheetName, actionStr, payload, rowIndex) {
+    const btn = document.getElementById('btn-crud-save');
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Menyinkronisasi...';
+    btn.disabled = true;
+
+    console.log(`[DEBUG FRONTEND] 4. Menghubungi Server API... Action: ${actionStr}`);
+
+    google.script.run
+        .withSuccessHandler((res) => {
+            console.log("[DEBUG FRONTEND] 5. Respon Sukses dari Server:", res);
+            if (res.status === 'success') {
+                sysShowToast(res.message, 'success');
+                document.getElementById('crud-modal').remove();
+                action_loadMasterTable(sheetName); 
+            } else {
+                sysShowToast("Error Server: " + res.message, 'error');
+                btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Coba Lagi';
+                btn.disabled = false;
+            }
+        })
+        // [UPDATE DEBUG FIX]: Menangkap jika Backend Crash Total!
+        .withFailureHandler((err) => {
+            console.error("[DEBUG FRONTEND] 💥 SERVER CRASH:", err);
+            sysShowToast("CRITICAL ERROR: Cek Console Browser (F12)!", 'error');
+            btn.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Gagal Sistem';
+            btn.disabled = false;
+        })
+        .api_adminMutateMaster(actionStr, sheetName, payload, rowIndex);
+}
+
+// --- CARI DAN GANTI FUNGSI INI DI JS_Dashboard.html ---
+
+function action_deleteMasterRow(sheetName, rowIndex) {
+    // [UPDATE KILLER UI]: Custom Glassmorphism Modal untuk Tindakan Destruktif (Delete)
+    const modalId = 'modal-confirm-delete';
+
+    const btnCancel = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors', { 
+        type: 'button', 
+        onClick: () => document.getElementById(modalId).remove() 
+    }, ['Batal']);
+
+    const btnConfirm = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-white bg-red-500 hover:bg-red-600 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5', {
+        type: 'button',
+        onClick: () => {
+            document.getElementById(modalId).remove();
+            execute_deleteMasterRow(sheetName, rowIndex); // Eksekusi jika disetujui
+        }
+    }, [DOM_Engine.create('i', 'fa-solid fa-fire'), 'Ya, Musnahkan Data']);
+
+    const modalContent = DOM_Engine.create('div', 'bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden transform transition-transform scale-100 fade-in-up border border-slate-100 p-8 text-center relative', {}, [
+        // Latar Dekorasi Aura Merah
+        DOM_Engine.create('div', 'absolute -top-10 -right-10 w-32 h-32 bg-red-50 rounded-full blur-2xl opacity-80 pointer-events-none'),
+        
+        DOM_Engine.create('div', 'w-20 h-20 bg-red-50 border border-red-100 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner relative z-10', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-trash-can text-4xl text-red-500 animate-pulse')
+        ]),
+        DOM_Engine.create('h3', 'font-extrabold text-slate-800 text-2xl mb-2 tracking-tight relative z-10', {}, ['Tindakan Destruktif!']),
+        DOM_Engine.create('p', 'text-sm text-slate-500 mb-8 leading-relaxed relative z-10', {}, [
+            'Anda akan memusnahkan data ini secara permanen dari tabel ',
+            DOM_Engine.create('span', 'font-black text-red-500 bg-red-50 px-2 py-0.5 rounded-md', {}, [sheetName.replace('Master_', '')]),
+            '. Data yang dihapus tidak dapat dikembalikan. Lanjutkan?'
+        ]),
+        DOM_Engine.create('div', 'flex flex-col sm:flex-row justify-center gap-3 relative z-10', {}, [btnCancel, btnConfirm])
+    ]);
+
+    const modalOverlay = DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[120] flex items-center justify-center p-4 fade-in', { id: modalId }, [modalContent]);
+    document.body.appendChild(modalOverlay);
+}
+
+// Eksekutor API Terpisah untuk Clean Architecture
+function execute_deleteMasterRow(sheetName, rowIndex) {
+    sysShowToast('Mengeksekusi protokol pemusnahan...', 'info');
+    
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') {
+            sysShowToast(res.message, 'success');
+            action_loadMasterTable(sheetName); // Auto-Refresh UI Tabel
+        } else {
+            sysShowToast(res.message, 'error');
+        }
+    }).api_adminMutateMaster("DELETE", sheetName, [], rowIndex);
+}
+
+// ==============================================================================
+// MODUL SUPER ADMIN: HRIS COMMAND CENTER (SUB-MENU HUB)
+// ==============================================================================
+
+function renderWorkspace_KelolaKaryawan() {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    const headerSec = DOM_Engine.create('div', 'mb-8 fade-in', {}, [
+        DOM_Engine.create('div', 'flex items-center gap-4 mb-2', {}, [
+            DOM_Engine.create('div', 'w-10 sm:w-12 h-1 bg-indigo-600 rounded-full'),
+            DOM_Engine.create('span', 'text-indigo-600 font-extrabold tracking-widest text-[10px] sm:text-xs uppercase', {}, ['Human Resource Information System'])
+        ]),
+        DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [
+            'HRIS Command Center'
+        ]),
+        DOM_Engine.create('p', 'text-slate-500 text-sm mt-2 max-w-2xl leading-relaxed', {}, ['Pusat analitik SDM, keamanan perangkat, dan unduhan laporan kinerja operasional bulanan.'])
+    ]);
+
+    const menus = [
+        {
+            title: "Security & Device Unlock",
+            desc: "Kelola akses login dan bebaskan gembok keamanan perangkat mekanik.",
+            icon: "fa-mobile-screen-button",
+            color: "from-rose-500 to-pink-600",
+            action: action_openSubMenu_UnlockDevice
+        },
+        {
+            title: "Audit Log Individu",
+            desc: "Ekspor riwayat perjalanan lengkap 30 hari terakhir dalam format PDF Profesional.",
+            icon: "fa-user-clock",
+            color: "from-blue-500 to-cyan-600",
+            action: action_openSubMenu_AuditLog // <--- Panggil fungsi baru
+        },
+        {
+            title: "Rekapitulasi Kinerja",
+            desc: "Ekspor data performa bulanan yang dikelompokkan berdasarkan Status Karyawan.",
+            icon: "fa-chart-pie",
+            color: "from-emerald-500 to-teal-600",
+            action: () => sysShowToast("Modul Excel Rekap Kinerja sedang dalam perakitan...", "info")
+        },
+        {
+            title: "Statistik Operasional",
+            desc: "Pemetaan beban kerja bulanan untuk setiap lokasi Customer (Group by Status).",
+            icon: "fa-building-user",
+            color: "from-amber-500 to-orange-600",
+            action: () => sysShowToast("Modul Analitik Customer sedang dalam perakitan...", "info")
+        }
+    ];
+
+    const gridCards = menus.map(m => {
+        return DOM_Engine.create('div', 'glass p-6 sm:p-8 rounded-[1.5rem] shadow-premium hover:shadow-2xl transition-all duration-500 cursor-pointer group relative overflow-hidden flex flex-col justify-between h-full border border-slate-100/50', {
+            onClick: m.action
+        }, [
+            DOM_Engine.create('div', `absolute -right-8 -top-8 w-32 h-32 bg-gradient-to-br ${m.color} opacity-[0.04] rounded-full group-hover:scale-150 transition-transform duration-700 pointer-events-none`),
+            DOM_Engine.create('div', 'flex items-start gap-5 relative z-10', {}, [
+                DOM_Engine.create('div', `w-14 h-14 flex-shrink-0 bg-gradient-to-br ${m.color} text-white rounded-2xl flex items-center justify-center text-2xl shadow-lg group-hover:rotate-6 transition-transform`, {}, [DOM_Engine.create('i', `fa-solid ${m.icon}`)]),
+                DOM_Engine.create('div', '', {}, [
+                    DOM_Engine.create('h3', 'text-xl font-bold text-slate-800 mb-2 group-hover:text-indigo-600 transition-colors tracking-tight', {}, [m.title]),
+                    DOM_Engine.create('p', 'text-sm text-slate-500 leading-relaxed', {}, [m.desc])
+                ])
+            ]),
+            DOM_Engine.create('div', 'mt-6 flex justify-end relative z-10', {}, [
+                DOM_Engine.create('div', 'w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors shadow-sm', {}, [DOM_Engine.create('i', 'fa-solid fa-arrow-right')])
+            ])
+        ]);
+    });
+
+    container.appendChild(DOM_Engine.create('div', 'bg-aurora min-h-screen p-2', {}, [
+        headerSec, DOM_Engine.create('div', 'grid grid-cols-1 md:grid-cols-2 gap-6 auto-rows-fr', {}, gridCards)
+    ]));
+}
+
+// ==============================================================================
+// SUB-MENU 1: SECURITY & DEVICE UNLOCK
+// ==============================================================================
+function action_openSubMenu_UnlockDevice() {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+    
+    container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center justify-center py-20 fade-in', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-mobile-screen-button fa-spin text-4xl text-rose-500 mb-4'),
+        DOM_Engine.create('p', 'text-slate-500 font-medium tracking-wide', {}, ['Menganalisa Security Device seluruh karyawan...'])
+    ]));
+
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') buildUI_KelolaKaryawan(res.data);
+        else { sysShowToast(res.message, 'error'); renderWorkspace_KelolaKaryawan(); } // Kembali ke HUB jika gagal
+    }).api_adminGetKaryawanDetails();
+}
+
+function buildUI_KelolaKaryawan(dataKaryawan) {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    const btnBack = DOM_Engine.create('button', 'text-slate-500 hover:text-indigo-600 font-medium flex items-center gap-2 mb-6 transition-colors', { onClick: renderWorkspace_KelolaKaryawan }, [DOM_Engine.create('i', 'fa-solid fa-arrow-left'), ' Kembali ke HRIS Center']);
+
+    const headerSec = DOM_Engine.create('div', 'mb-8 fade-in flex flex-col md:flex-row md:items-end justify-between gap-4', {}, [
+        DOM_Engine.create('div', '', {}, [
+            btnBack,
+            DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [DOM_Engine.create('i', 'fa-solid fa-mobile-screen-button text-rose-500'), 'Device Security']),
+            DOM_Engine.create('p', 'text-slate-500 text-sm mt-1', {}, ['Kelola ikatan akses perangkat (Hardware Lock) pegawai.'])
+        ]),
+        DOM_Engine.create('div', 'bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center gap-3 shadow-sm', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-magnifying-glass text-slate-400'),
+            DOM_Engine.create('input', 'bg-transparent border-none outline-none text-sm font-semibold text-slate-700 w-full md:w-48 placeholder-slate-400', { 
+                type: 'text', placeholder: 'Cari Nama/NRPP...',
+                onInput: (e) => {
+                    const term = e.target.value.toLowerCase();
+                    document.querySelectorAll('.hris-card').forEach(card => {
+                        const txt = card.textContent.toLowerCase();
+                        card.style.display = txt.includes(term) ? 'flex' : 'none';
+                    });
+                }
+            })
+        ])
+    ]);
+
+    const cards = dataKaryawan.map(k => {
+        const isLocked = k.deviceId !== "";
+        
+        const badgeRole = DOM_Engine.create('span', 'text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-100 text-slate-600', {}, [k.jabatan]);
+        const locInfo = DOM_Engine.create('p', 'text-xs text-slate-500 font-medium mt-1 flex items-center gap-1.5', {}, [DOM_Engine.create('i', 'fa-solid fa-map-pin text-slate-400'), k.departemen + " • " + k.lokasi]);
+        
+        const lockStatus = DOM_Engine.create('div', `flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg border ${isLocked ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-rose-50 text-rose-500 border-rose-200'}`, {}, [
+            DOM_Engine.create('i', `fa-solid ${isLocked ? 'fa-lock' : 'fa-lock-open'}`), isLocked ? 'Device Terkunci' : 'Device Bebas'
+        ]);
+
+        let actionBtn = DOM_Engine.create('button', 'w-full py-2.5 mt-4 rounded-xl text-xs font-bold transition-all shadow-sm flex justify-center items-center gap-2 text-slate-400 bg-slate-100 cursor-not-allowed', { disabled: true }, ['Menunggu Login Pertama']);
+        
+        if (isLocked) {
+            actionBtn = DOM_Engine.create('button', 'w-full py-2.5 mt-4 rounded-xl text-xs font-bold transition-all shadow-sm flex justify-center items-center gap-2 text-rose-600 bg-rose-50 hover:bg-rose-500 hover:text-white border border-rose-100 hover:border-rose-500', { 
+                id: `btn-reset-${k.nrpp}`,
+                onClick: () => action_triggerDeviceReset(k.nrpp)
+            }, [DOM_Engine.create('i', 'fa-solid fa-mobile-screen-button'), 'Reset Device (Unlock)']);
+        }
+
+        return DOM_Engine.create('div', 'hris-card glass p-5 rounded-[1.5rem] shadow-premium hover:shadow-2xl transition-all border border-white flex flex-col justify-between group', {}, [
+            DOM_Engine.create('div', '', {}, [
+                DOM_Engine.create('div', 'flex justify-between items-start mb-4', {}, [
+                    DOM_Engine.create('div', 'w-12 h-12 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-full flex items-center justify-center text-white text-lg font-bold shadow-md', {}, [k.nama.charAt(0).toUpperCase()]),
+                    badgeRole
+                ]),
+                DOM_Engine.create('h3', 'text-lg font-extrabold text-slate-800 leading-tight group-hover:text-indigo-600 transition-colors', {}, [k.nama]),
+                DOM_Engine.create('p', 'text-sm font-bold text-slate-400', {}, [k.nrpp]),
+                locInfo
+            ]),
+            DOM_Engine.create('div', 'mt-5 pt-4 border-t border-slate-100/50', {}, [
+                DOM_Engine.create('div', 'flex justify-between items-center mb-1', {}, [
+                    DOM_Engine.create('span', 'text-[10px] font-bold text-slate-400 uppercase tracking-wider', {}, ['Security Status']), lockStatus
+                ]),
+                DOM_Engine.create('p', 'text-[10px] text-slate-400 font-medium', {}, ['Aktivitas terakhir: ', k.lastLogin]),
+                actionBtn
+            ])
+        ]);
+    });
+
+    const grid = DOM_Engine.create('div', 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6', {}, cards);
+    container.appendChild(DOM_Engine.create('div', 'bg-aurora min-h-screen p-2', {}, [headerSec, grid]));
+}
+
+function action_triggerDeviceReset(nrpp) {
+    const modalId = 'modal-confirm-reset';
+    const btnCancel = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors', { 
+        type: 'button', onClick: () => document.getElementById(modalId).remove() 
+    }, ['Batal']);
+
+    const btnConfirm = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-white bg-rose-500 hover:bg-rose-600 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5', {
+        type: 'button',
+        onClick: () => {
+            document.getElementById(modalId).remove();
+            execute_resetDevice(nrpp); 
+        }
+    }, [DOM_Engine.create('i', 'fa-solid fa-unlock-keyhole'), 'Ya, Bebaskan Perangkat']);
+
+    const modalContent = DOM_Engine.create('div', 'bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden transform transition-transform scale-100 fade-in-up border border-slate-100 p-8 text-center relative', {}, [
+        DOM_Engine.create('div', 'absolute -top-10 -right-10 w-32 h-32 bg-rose-50 rounded-full blur-2xl opacity-60 pointer-events-none'),
+        DOM_Engine.create('div', 'w-20 h-20 bg-rose-50 border border-rose-100 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner relative z-10', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-triangle-exclamation text-4xl text-rose-500 animate-pulse')
+        ]),
+        DOM_Engine.create('h3', 'font-extrabold text-slate-800 text-2xl mb-2 tracking-tight relative z-10', {}, ['Konfirmasi Reset']),
+        DOM_Engine.create('p', 'text-sm text-slate-500 mb-8 leading-relaxed relative z-10', {}, [
+            'Hapus ikatan keamanan perangkat untuk NRPP ',
+            DOM_Engine.create('span', 'font-black text-rose-500 bg-rose-50 px-2 py-0.5 rounded-md', {}, [nrpp]),
+            '? Pegawai akan dapat login kembali di HP mana pun.'
+        ]),
+        DOM_Engine.create('div', 'flex flex-col sm:flex-row justify-center gap-3 relative z-10', {}, [btnCancel, btnConfirm])
+    ]);
+
+    document.body.appendChild(DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[120] flex items-center justify-center p-4 fade-in', { id: modalId }, [modalContent]));
+}
+
+function execute_resetDevice(nrpp) {
+    const btn = document.getElementById(`btn-reset-${nrpp}`);
+    if(btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Mereset...'; btn.disabled = true; }
+
+    google.script.run.withSuccessHandler((res) => {
+        if(res.status === 'success') {
+            sysShowToast(res.message, 'success');
+            action_openSubMenu_UnlockDevice(); // Refresh Data UI
+        } else { 
+            sysShowToast(res.message, 'error'); 
+            if(btn) { btn.innerHTML = '<i class="fa-solid fa-mobile-screen-button"></i> Reset Device (Unlock)'; btn.disabled = false; }
+        }
+    }).api_adminResetDevice(nrpp);
+}
+
+// Fungsi Eksekutor (Dipisahkan agar logika bersih)
+function execute_resetDevice(nrpp) {
+    const btn = document.getElementById(`btn-reset-${nrpp}`);
+    if(btn) {
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Mereset...'; 
+        btn.disabled = true;
+    }
+
+    google.script.run.withSuccessHandler((res) => {
+        if(res.status === 'success') {
+            sysShowToast(res.message, 'success');
+            renderWorkspace_KelolaKaryawan(); // Auto-refresh UI Kartu
+        } else { 
+            sysShowToast(res.message, 'error'); 
+            if(btn) {
+                btn.innerHTML = '<i class="fa-solid fa-mobile-screen-button"></i> Reset Device (Unlock)'; 
+                btn.disabled = false; 
+            }
+        }
+    }).api_adminResetDevice(nrpp);
+}
+
+// --------------------------------------------------------------------------------------
+// MODUL GLOBAL LIVE TRACKING
+// --------------------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------------------
+// MODUL GLOBAL LIVE TRACKING & APPROVAL (TABBED INTERFACE)
+// --------------------------------------------------------------------------------------
+
+let State_MonitoringTab = 'live'; // Status default saat menu dibuka
+
+// ==============================================================================
+// MODUL 1: GLOBAL LIVE TRACKING (STANDALONE)
+// ==============================================================================
+function renderWorkspace_LiveTracking() {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+    
+    container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center justify-center py-20 fade-in', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-satellite-dish fa-spin text-4xl text-indigo-500 mb-4'),
+        DOM_Engine.create('p', 'text-slate-500 font-medium tracking-wide', {}, ['Menyapu sinyal operasional hari ini...'])
+    ]));
+
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') {
+            DOM_Engine.clear('nav-workspace');
+            
+            const headerSec = DOM_Engine.create('div', 'mb-8 fade-in flex justify-between items-end', {}, [
+                DOM_Engine.create('div', '', {}, [
+                    DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [
+                        DOM_Engine.create('div', 'relative flex items-center justify-center w-8 h-8', {}, [
+                            DOM_Engine.create('span', 'animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75'),
+                            DOM_Engine.create('i', 'relative fa-solid fa-satellite-dish text-indigo-600 text-xl')
+                        ]),
+                        'Global Live Tracking'
+                    ]),
+                    DOM_Engine.create('p', 'text-slate-500 text-sm mt-1 ml-11', {}, ['Radar aktivitas Keberangkatan Hari Ini (WIB).'])
+                ]),
+                DOM_Engine.create('button', 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2 transition-all', { onClick: renderWorkspace_LiveTracking }, [DOM_Engine.create('i', 'fa-solid fa-rotate-right'), 'Refresh Radar'])
+            ]);
+
+            if (res.data.length === 0) {
+                container.appendChild(DOM_Engine.create('div', 'bg-aurora min-h-screen p-2', {}, [headerSec, DOM_Engine.create('div', 'glass text-center py-16 rounded-[2rem] border border-white', {}, [
+                    DOM_Engine.create('i', 'fa-solid fa-mug-hot text-5xl text-slate-300 mb-4'),
+                    DOM_Engine.create('h3', 'text-lg font-bold text-slate-500', {}, ['Sinyal Kosong. Belum ada aktivitas keberangkatan hari ini.'])
+                ])]));
+                return;
+            }
+
+            const trs = res.data.map(log => {
+                const isJalan = log.status.toUpperCase() === "SEDANG JALAN";
+                const statusBadge = DOM_Engine.create('div', `inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${isJalan ? 'bg-rose-50 text-rose-600 border-rose-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`, {}, [
+                    DOM_Engine.create('span', `w-2 h-2 rounded-full ${isJalan ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`), isJalan ? 'DI PERJALANAN' : 'SELESAI'
+                ]);
+
+                return DOM_Engine.create('tr', 'hover:bg-slate-50/50 transition-colors border-b border-slate-100', {}, [
+                    DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap', {}, [
+                        DOM_Engine.create('p', 'text-sm font-extrabold text-slate-800', {}, [log.nama]),
+                        DOM_Engine.create('p', 'text-[10px] font-bold text-slate-400 uppercase tracking-wider', {}, [log.nrpp + " • " + log.divisi])
+                    ]),
+                    DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap', {}, [
+                        DOM_Engine.create('div', 'flex items-center gap-2', {}, [DOM_Engine.create('i', 'fa-regular fa-clock text-indigo-400'), DOM_Engine.create('span', 'text-sm font-bold text-slate-700', {}, [log.waktuKeluar, ' WIB'])])
+                    ]),
+                    DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-sm font-bold text-slate-700', {}, [log.customer]),
+                    DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap', {}, [statusBadge])
+                ]);
+            });
+
+            const thead = DOM_Engine.create('thead', 'bg-slate-50/80 border-b border-slate-200', {}, [
+                DOM_Engine.create('tr', '', {}, ['Personel & Divisi', 'Waktu Keluar', 'Target Customer', 'Live Status'].map(h => DOM_Engine.create('th', 'px-5 py-4 text-left text-xs font-extrabold text-slate-500 uppercase tracking-widest', {}, [h])))
+            ]);
+
+            const wrapTable = DOM_Engine.create('div', 'glass overflow-x-auto rounded-[2rem] shadow-premium border border-white', {}, [
+                DOM_Engine.create('table', 'min-w-full', {}, [thead, DOM_Engine.create('tbody', 'bg-white/40', {}, trs)])
+            ]);
+
+            container.appendChild(DOM_Engine.create('div', 'bg-aurora min-h-screen p-2', {}, [headerSec, wrapTable]));
+        } else { sysShowToast(res.message, 'error'); }
+    }).api_adminGetLiveLogs();
+}
+
+// ==============================================================================
+// MODUL SUPER ADMIN: ANOMALI & APPROVAL (DENGAN FITUR SIDANG HRD)
+// ==============================================================================
+
+let State_BulkApproval = [];
+
+function renderWorkspace_Approval() {
+    DOM_Engine.clear('nav-workspace');
+    State_BulkApproval = []; 
+    const container = document.getElementById('nav-workspace');
+    
+    container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center justify-center py-20 fade-in', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-file-signature fa-spin text-4xl text-amber-500 mb-4'),
+        DOM_Engine.create('p', 'text-slate-500 font-medium tracking-wide', {}, ['Menarik data log perjalanan untuk di-review...'])
+    ]));
+
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') buildUI_ApprovalDashboard(res.data);
+        else sysShowToast(res.message, 'error');
+    }).api_adminGetApprovalList();
+}
+
+function buildUI_ApprovalDashboard(logs) {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    const headerSec = DOM_Engine.create('div', 'mb-6 fade-in flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4', {}, [
+        DOM_Engine.create('div', '', {}, [
+            DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [
+                DOM_Engine.create('div', 'p-2 bg-amber-100 rounded-xl', {}, [DOM_Engine.create('i', 'fa-solid fa-file-signature text-amber-600')]),
+                'Anomali & Approval'
+            ]),
+            DOM_Engine.create('p', 'text-slate-500 text-sm mt-2 ml-14', {}, ['Tinjau log perjalanan, sidang HRD, dan kelola gembok cetak.'])
+        ]),
+        DOM_Engine.create('button', 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2 transition-all', { onClick: renderWorkspace_Approval }, [DOM_Engine.create('i', 'fa-solid fa-rotate-right'), 'Refresh Data'])
+    ]);
+
+    if (logs.length === 0) {
+        container.appendChild(DOM_Engine.create('div', 'bg-aurora min-h-screen p-2', {}, [headerSec, DOM_Engine.create('div', 'glass text-center py-16 rounded-[2rem] border border-white fade-in', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-check-double text-5xl text-emerald-400 mb-4'),
+            DOM_Engine.create('h3', 'text-lg font-bold text-slate-500', {}, ['Semua bersih! Tidak ada antrean Approval.'])
+        ])]));
+        return;
+    }
+
+    // --- NEW BULK ACTION BAR (WITH UNLOCK FEATURE) ---
+    const bulkActionBar = DOM_Engine.create('div', 'bg-white border border-indigo-100 p-4 rounded-2xl mb-6 flex flex-col md:flex-row justify-between items-center gap-4 shadow-sm fade-in-up', {}, [
+        DOM_Engine.create('div', 'flex items-center gap-3', {}, [
+            DOM_Engine.create('div', 'w-10 h-10 bg-indigo-50 text-indigo-500 rounded-lg flex items-center justify-center text-lg', {}, [DOM_Engine.create('i', 'fa-solid fa-layer-group')]),
+            DOM_Engine.create('span', 'font-bold text-indigo-600', {id: 'txt-selected-count'}, ['0 Dokumen Terpilih'])
+        ]),
+        DOM_Engine.create('div', 'flex gap-3 w-full md:w-auto', {}, [
+            // Tombol Bulk Unlock (Gembok)
+            DOM_Engine.create('button', 'flex-1 md:flex-none px-5 py-2.5 bg-white border border-indigo-200 text-indigo-600 text-sm font-bold rounded-xl shadow-sm hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2 opacity-50 cursor-not-allowed', { 
+                id: 'btn-bulk-unlock', disabled: true, onClick: action_executeBulkUnlockPrint 
+            }, [DOM_Engine.create('i', 'fa-solid fa-lock-open'), 'Buka Gembok Terpilih']),
+            
+            // Tombol Bulk Approve
+            DOM_Engine.create('button', 'flex-1 md:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 opacity-50 cursor-not-allowed', { 
+                id: 'btn-bulk-approve', disabled: true, onClick: action_executeBulkApprove 
+            }, [DOM_Engine.create('i', 'fa-solid fa-check-double'), 'Approve Terpilih'])
+        ])
+    ]);
+
+    const toggleCheckbox = (idTransaksi, checked) => {
+        if (checked) State_BulkApproval.push(idTransaksi);
+        else State_BulkApproval = State_BulkApproval.filter(id => id !== idTransaksi);
+        const count = State_BulkApproval.length;
+        document.getElementById('txt-selected-count').innerText = `${count} Dokumen Terpilih`;
+        
+        const btnApp = document.getElementById('btn-bulk-approve');
+        const btnUnl = document.getElementById('btn-bulk-unlock');
+        
+        if (count > 0) { 
+            [btnApp, btnUnl].forEach(b => {
+                b.disabled = false; b.classList.remove('opacity-50', 'cursor-not-allowed');
+            });
+        } else {
+            [btnApp, btnUnl].forEach(b => {
+                b.disabled = true; b.classList.add('opacity-50', 'cursor-not-allowed');
+            });
+        }
+    };
+
+    const toggleCheckAll = (checked) => {
+        State_BulkApproval = [];
+        document.querySelectorAll('.chk-approve-item').forEach(chk => {
+            chk.checked = checked;
+            if (checked) State_BulkApproval.push(chk.value);
+        });
+        toggleCheckbox(null, false);
+    };
+
+    const trs = logs.map(log => {
+        let jamMasukUI, statusUI, rowBg = 'hover:bg-slate-50/50';
+        if (log.isAnomali) {
+            rowBg = 'bg-rose-50/30 hover:bg-rose-50';
+            jamMasukUI = DOM_Engine.create('div', 'flex items-center gap-2 text-rose-500', {}, [DOM_Engine.create('i', 'fa-solid fa-triangle-exclamation animate-pulse'), DOM_Engine.create('span', 'text-sm font-extrabold', {}, ['AUTO-CHECKOUT (23:59)'])]);
+            statusUI = DOM_Engine.create('span', 'text-[10px] font-bold px-3 py-1.5 rounded-full bg-rose-100 text-rose-600 shadow-sm', {}, ['ANOMALI / SIDANG']);
+        } else {
+            jamMasukUI = DOM_Engine.create('span', 'text-sm font-bold text-slate-700', {}, [log.waktuMasuk, ' WIB']);
+            statusUI = DOM_Engine.create('span', 'text-[10px] font-bold px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 shadow-sm', {}, [log.persetujuan]);
+        }
+
+        const btnEdit = DOM_Engine.create('button', 'w-9 h-9 bg-amber-100 text-amber-600 hover:bg-amber-500 hover:text-white rounded-xl flex items-center justify-center transition-all shadow-sm border border-amber-200 hover:border-amber-500', {
+            title: 'Koreksi Data (Sidang HRD)',
+            onClick: () => action_openEditSidang(log)
+        }, [DOM_Engine.create('i', 'fa-solid fa-pen-to-square')]);
+
+        const aksiButtons = [btnEdit];
+        if (log.statusKlaim && log.statusKlaim.toUpperCase().includes("SUDAH")) {
+            const btnUnlock = DOM_Engine.create('button', 'w-9 h-9 bg-indigo-100 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl flex items-center justify-center transition-all shadow-sm border border-indigo-200 ml-2', {
+                title: 'Buka Gembok Cetak (Mekanik bisa print ulang)',
+                onClick: () => action_openUnlockModal(log.customer, log.idTransaksi, log.nrpp) 
+            }, [DOM_Engine.create('i', 'fa-solid fa-lock-open')]);
+            aksiButtons.push(btnUnlock);
+        }
+
+        return DOM_Engine.create('tr', `${rowBg} transition-colors border-b border-slate-100`, {}, [
+            DOM_Engine.create('td', 'px-5 py-4 text-center', {}, [DOM_Engine.create('input', 'chk-approve-item w-5 h-5 text-indigo-600 rounded border-slate-300 cursor-pointer', { type: 'checkbox', value: log.idTransaksi, onChange: (e) => toggleCheckbox(e.target.value, e.target.checked) })]),
+            DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap', {}, [DOM_Engine.create('p', 'text-sm font-extrabold text-slate-800', {}, [log.nama]), DOM_Engine.create('p', 'text-[10px] font-bold text-slate-400 uppercase tracking-wider', {}, [log.nrpp])]),
+            DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-sm font-bold text-slate-700', {}, [log.customer]),
+            DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-sm text-slate-500 font-medium', {}, [log.waktuKeluar]),
+            DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap', {}, [jamMasukUI]),
+            DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-center', {}, [statusUI]),
+            DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-center', {}, [DOM_Engine.create('div', 'flex items-center justify-center', {}, aksiButtons)]) 
+        ]);
+    });
+
+    const thead = DOM_Engine.create('thead', 'bg-slate-50/80 border-b border-slate-200', {}, [
+        DOM_Engine.create('tr', '', {}, [
+            DOM_Engine.create('th', 'px-5 py-4 text-center', {}, [DOM_Engine.create('input', 'w-5 h-5 cursor-pointer', { type: 'checkbox', onChange: (e) => toggleCheckAll(e.target.checked) })]), 
+            ...['Personel', 'Customer', 'Jam Keluar', 'Jam Masuk', 'Status', 'Aksi'].map(h => DOM_Engine.create('th', 'px-5 py-4 text-left text-xs font-extrabold text-slate-500 uppercase tracking-widest', {}, [h]))
+        ])
+    ]);
+
+    container.appendChild(DOM_Engine.create('div', 'bg-aurora min-h-screen p-2', {}, [
+        headerSec, bulkActionBar, 
+        DOM_Engine.create('div', 'glass overflow-x-auto rounded-[2rem] shadow-premium border border-white fade-in-up', {}, [
+            DOM_Engine.create('table', 'min-w-full', {}, [thead, DOM_Engine.create('tbody', 'bg-white/40', {}, trs)])
+        ])
+    ]));
+}
+
+// ==========================================================
+// ELEGANT UNLOCK MODAL & LOGIC
+// ==========================================================
+// ==========================================================
+// ELEGANT UNLOCK MODAL & LOGIC (BUG FIX: API ROUTING & ERROR HANDLING)
+// ==========================================================
+function action_openUnlockModal(custName, idTrx, nrpp) {
+    const modalId = 'modal-confirm-unlock';
+
+    const btnCancel = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors', { 
+        onClick: () => document.getElementById(modalId).remove() 
+    }, ['Batal']);
+
+    const btnConfirm = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5', {
+        id: 'btn-exec-unlock',
+        onClick: () => {
+            const btn = document.getElementById('btn-exec-unlock');
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Memproses...'; 
+            btn.disabled = true;
+
+            // [FIX]: Routing ke API Bulk (Masal) yang sudah tersedia dengan format array [idTrx]
+            // Serta penambahan Failure Handler agar UI tidak loading selamanya jika server *down*
+            google.script.run
+                .withSuccessHandler((res) => {
+                    document.getElementById(modalId).remove();
+                    if(res.status === 'success') { 
+                        sysShowToast(res.message, "success"); 
+                        renderWorkspace_Approval(); // Refresh UI
+                    } else {
+                        sysShowToast(res.message, "error");
+                    }
+                })
+                .withFailureHandler((err) => {
+                    document.getElementById(modalId).remove();
+                    sysShowToast("CRITICAL: Gagal terhubung ke Server API!", "error");
+                    console.error("Unlock Error:", err);
+                })
+                .api_adminBulkUnlockPrint([idTrx]); 
+        }
+    }, [DOM_Engine.create('i', 'fa-solid fa-lock-open'), 'Ya, Buka Gembok']);
+
+    const modalContent = DOM_Engine.create('div', 'bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden transform transition-transform scale-100 fade-in-up border border-slate-100 p-8 text-center relative', {}, [
+        DOM_Engine.create('div', 'absolute -top-10 -right-10 w-32 h-32 bg-indigo-50 rounded-full blur-2xl opacity-80 pointer-events-none'),
+        DOM_Engine.create('div', 'w-20 h-20 bg-indigo-50 border border-indigo-100 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner relative z-10', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-key text-4xl text-indigo-500 animate-bounce')
+        ]),
+        DOM_Engine.create('h3', 'font-extrabold text-slate-800 text-2xl mb-2 tracking-tight relative z-10', {}, ['Konfirmasi Unlock']),
+        DOM_Engine.create('p', 'text-sm text-slate-500 mb-8 leading-relaxed relative z-10', {}, [
+            'Buka gembok cetak untuk perjalanan ke ',
+            DOM_Engine.create('span', 'font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md', {}, [custName]),
+            '? Mekanik akan dapat mencetak lampiran PDF kembali.'
+        ]),
+        DOM_Engine.create('div', 'flex flex-col sm:flex-row justify-center gap-3 relative z-10', {}, [btnCancel, btnConfirm])
+    ]);
+
+    document.body.appendChild(DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[120] flex items-center justify-center p-4 fade-in', { id: modalId }, [modalContent]));
+}
+
+// ==========================================================
+// ELEGANT BULK UNLOCK MODAL & LOGIC
+// ==========================================================
+function action_executeBulkUnlockPrint() {
+    if (State_BulkApproval.length === 0) return;
+    
+    const modalId = 'modal-bulk-unlock';
+
+    const btnCancel = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors', { 
+        onClick: () => document.getElementById(modalId).remove() 
+    }, ['Batal']);
+
+    const btnConfirm = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5', {
+        id: 'btn-exec-bulk-unlock',
+        onClick: () => {
+            // Animasi Loading di Modal
+            const btn = document.getElementById('btn-exec-bulk-unlock');
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Memproses...'; 
+            btn.disabled = true;
+
+            // Animasi Loading di Tombol Utama (Belakang Layar)
+            const mainBtn = document.getElementById('btn-bulk-unlock');
+            const originalHtml = mainBtn.innerHTML;
+            mainBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>...'; 
+            mainBtn.disabled = true;
+
+            google.script.run.withSuccessHandler((res) => {
+                document.getElementById(modalId).remove();
+                mainBtn.innerHTML = originalHtml; 
+                mainBtn.disabled = false;
+                
+                if (res.status === 'success') {
+                    sysShowToast(res.message, 'success');
+                    renderWorkspace_Approval(); 
+                } else sysShowToast(res.message, 'error');
+            }).api_adminBulkUnlockPrint(State_BulkApproval);
+        }
+    }, [DOM_Engine.create('i', 'fa-solid fa-unlock-keyhole'), 'Ya, Eksekusi Masal']);
+
+    const modalContent = DOM_Engine.create('div', 'bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden transform transition-transform scale-100 fade-in-up border border-slate-100 p-8 text-center relative', {}, [
+        // Aura Latar Indigo
+        DOM_Engine.create('div', 'absolute -top-10 -left-10 w-32 h-32 bg-indigo-50 rounded-full blur-2xl opacity-80 pointer-events-none'),
+        
+        DOM_Engine.create('div', 'w-20 h-20 bg-indigo-50 border border-indigo-100 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner relative z-10', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-layer-group text-4xl text-indigo-500 animate-bounce') // Ikon Multiple/Masal
+        ]),
+        DOM_Engine.create('h3', 'font-extrabold text-slate-800 text-2xl mb-2 tracking-tight relative z-10', {}, ['Unlock Masal']),
+        DOM_Engine.create('p', 'text-sm text-slate-500 mb-8 leading-relaxed relative z-10', {}, [
+            'Buka gembok cetak untuk ',
+            DOM_Engine.create('span', 'font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md', {}, [State_BulkApproval.length + ' dokumen']),
+            ' terpilih? Karyawan akan dapat mencetaknya kembali.'
+        ]),
+        DOM_Engine.create('div', 'flex flex-col sm:flex-row justify-center gap-3 relative z-10', {}, [btnCancel, btnConfirm])
+    ]);
+
+    document.body.appendChild(DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[120] flex items-center justify-center p-4 fade-in', { id: modalId }, [modalContent]));
+}
+
+function action_executeBulkApprove() {
+    if (State_BulkApproval.length === 0) return;
+    const btn = document.getElementById('btn-bulk-approve');
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Memproses...';
+    btn.disabled = true;
+
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') {
+            sysShowToast(res.message, 'success');
+            renderWorkspace_Approval(); 
+        } else {
+            sysShowToast(res.message, 'error');
+            btn.innerHTML = '<i class="fa-solid fa-check-double"></i> Approve Terpilih';
+            btn.disabled = false;
+        }
+    }).api_adminBulkApprove(State_BulkApproval);
+}
+
+function action_openEditSidang(log) {
+    const btnCancel = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors', { type: 'button', onClick: () => document.getElementById('modal-edit-sidang').remove() }, ['Batal']);
+    
+    const btnSave = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all', { 
+        type: 'button', id: 'btn-sidang-save',
+        onClick: () => {
+            const outVal = document.getElementById('inp-sidang-out').value;
+            const inVal = document.getElementById('inp-sidang-in').value;
+            if(!outVal || !inVal) { sysShowToast("Waktu tidak boleh kosong!", "error"); return; }
+            action_executeSidangEdit(log, outVal, inVal);
+        }
+    }, [DOM_Engine.create('i', 'fa-solid fa-calculator'), 'Kalkulasi Ulang & Simpan']);
+
+    const formEdit = DOM_Engine.create('div', 'space-y-4 text-left px-6 py-4', {}, [
+        DOM_Engine.create('div', 'bg-slate-50 p-4 rounded-xl border border-slate-100 mb-2', {}, [
+            DOM_Engine.create('p', 'text-xs text-slate-500 font-bold', {}, ['TARGET KOREKSI:']),
+            DOM_Engine.create('p', 'text-sm font-extrabold text-slate-800', {}, [`${log.nama} (${log.nrpp}) - ${log.customer}`])
+        ]),
+        DOM_Engine.create('div', '', {}, [
+            DOM_Engine.create('label', 'block text-xs font-bold text-slate-600 mb-1', {}, ['Jam Keberangkatan']),
+            DOM_Engine.create('input', 'input-premium w-full bg-slate-50 px-4 py-2.5 text-sm', { type: 'datetime-local', id: 'inp-sidang-out', value: log.rawKeluar })
+        ]),
+        DOM_Engine.create('div', '', {}, [
+            DOM_Engine.create('label', 'block text-xs font-bold text-slate-600 mb-1', {}, ['Jam Kepulangan (Koreksi)']),
+            DOM_Engine.create('input', 'input-premium w-full bg-rose-50 border-rose-200 px-4 py-2.5 text-sm text-rose-700', { type: 'datetime-local', id: 'inp-sidang-in', value: log.rawMasuk })
+        ])
+    ]);
+
+    const modalContent = DOM_Engine.create('div', 'bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 text-center relative fade-in-up', {}, [
+        DOM_Engine.create('div', 'p-5 border-b border-slate-100 bg-amber-50/50 flex justify-between items-center', {}, [
+            DOM_Engine.create('h3', 'font-extrabold text-amber-600 text-lg flex items-center gap-2', {}, [DOM_Engine.create('i', 'fa-solid fa-gavel'), 'Sidang Koreksi Data']),
+            DOM_Engine.create('button', 'text-slate-400 hover:text-red-500', { type: 'button', onClick: () => document.getElementById('modal-edit-sidang').remove() }, [DOM_Engine.create('i', 'fa-solid fa-times')])
+        ]),
+        formEdit,
+        DOM_Engine.create('div', 'p-5 border-t bg-slate-50 flex flex-col sm:flex-row justify-end gap-3', {}, [btnCancel, btnSave]) 
+    ]);
+
+    document.body.appendChild(DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 fade-in', { id: 'modal-edit-sidang' }, [modalContent]));
+}
+
+function action_executeSidangEdit(log, outVal, inVal) {
+    const btn = document.getElementById('btn-sidang-save');
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Menghitung...'; btn.disabled = true;
+
+    const payload = {
+        idTransaksi: log.idTransaksi, sheetName: log.sheetName,
+        nrpp: log.nrpp, jabatan: log.jabatan, golongan: log.golongan,
+        wKeluar: outVal, wMasuk: inVal
+    };
+
+    google.script.run.withSuccessHandler((res) => {
+        if(res.status === 'success') {
+            sysShowToast(res.message, 'success');
+            document.getElementById('modal-edit-sidang').remove();
+            renderWorkspace_Approval(); 
+        } else {
+            sysShowToast(res.message, 'error');
+            btn.innerHTML = '<i class="fa-solid fa-calculator"></i> Kalkulasi Ulang & Simpan'; btn.disabled = false;
+        }
+    }).api_adminEditLog(payload);
+}
+
+function action_executeUnlockPrint(custName, idTrx, nrpp) {
+    // Karena tabel Approval menarik data mentah, kita perlu mencari Nomor ST dari context atau idTrx.
+    // Untuk keamanan, kita minta konfirmasi HRD.
+    const confirmUnlock = confirm(`Buka gembok cetak untuk perjalanan ke ${custName}?`);
+    if (!confirmUnlock) return;
+
+    sysShowToast("Menghubungi Server untuk Protokol Unlock...", "info");
+    
+    // Kita butuh ST Number. Di log backend tadi kita sudah melempar NoST di kolom 8 (Index 8).
+    // Mari kita asumsikan log.customer di tabel HRD membawa info ST atau kita tarik via API.
+    // Untuk tahap ini, kita gunakan idTransaksi sebagai referensi di Backend.
+    
+    google.script.run.withSuccessHandler((res) => {
+        if(res.status === 'success') {
+            sysShowToast(res.message, "success");
+            renderWorkspace_Approval(); // Refresh tabel HRD
+        } else sysShowToast(res.message, "error");
+    }).api_adminUnlockPrintByTRX(idTrx); // Kita buatkan API versi TRX agar lebih spesifik
+}
+
+// ==============================================================================
+// MODUL SUPER ADMIN: REKAPITULASI & MESIN EKSPOR CSV
+// ==============================================================================
+
+function renderWorkspace_RekapData() {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center justify-center py-20 fade-in', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-file-csv fa-spin text-4xl text-emerald-500 mb-4'),
+        DOM_Engine.create('p', 'text-slate-500 font-medium tracking-wide', {}, ['Menganalisa Struktur Database Rekapitulasi...'])
+    ]));
+
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') buildUI_RekapData(res.data);
+        else { sysShowToast(res.message, 'error'); renderWorkspace_MasterDB(); }
+    }).api_adminGetRekapSheets();
+}
+
+// --- CARI DAN GANTI 3 FUNGSI INI DI JS_Dashboard.html (BAGIAN PALING BAWAH) ---
+
+function buildUI_RekapData(sheetNames) {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    const headerSec = DOM_Engine.create('div', 'mb-8 fade-in', {}, [
+        DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [
+            DOM_Engine.create('div', 'p-2 bg-emerald-100 rounded-xl', {}, [DOM_Engine.create('i', 'fa-solid fa-cloud-arrow-down text-emerald-600')]),
+            'Payroll & Export Center'
+        ]),
+        DOM_Engine.create('p', 'text-slate-500 text-sm mt-2 ml-14', {}, ['Unduh laporan auto-grid matriks ke format Microsoft Excel (.xlsx) untuk keperluan penggajian.'])
+    ]);
+
+    // Membuat Kartu Ekspor Dinamis
+    const cards = sheetNames.map(sheet => {
+        const titleClean = sheet.replace('Rekap_', '').replace(/_/g, ' ');
+        return DOM_Engine.create('div', 'glass p-6 rounded-[1.5rem] shadow-premium hover:shadow-2xl transition-all border border-emerald-100/50 flex flex-col justify-between group', {}, [
+            DOM_Engine.create('div', 'flex items-center gap-4 mb-6', {}, [
+                DOM_Engine.create('div', 'w-14 h-14 bg-gradient-to-br from-emerald-400 to-teal-500 text-white rounded-2xl flex items-center justify-center text-2xl shadow-lg group-hover:scale-110 transition-transform duration-300', {}, [DOM_Engine.create('i', 'fa-solid fa-file-excel')]),
+                DOM_Engine.create('div', 'overflow-hidden flex-1', {}, [
+                    DOM_Engine.create('h3', 'text-lg font-extrabold text-slate-800 truncate', {}, [titleClean]),
+                    DOM_Engine.create('p', 'text-[10px] uppercase font-bold text-emerald-500 tracking-wider truncate mt-1', {}, [sheet])
+                ])
+            ]),
+            DOM_Engine.create('button', 'w-full py-3.5 bg-slate-800 hover:bg-emerald-600 text-white rounded-xl font-bold text-sm shadow-md transition-all hover:-translate-y-1 flex items-center justify-center gap-2', {
+                id: `btn-export-${sheet}`,
+                onClick: () => action_fetchAndExport(sheet)
+            }, [DOM_Engine.create('i', 'fa-solid fa-file-excel'), 'Ekspor Excel (.xlsx)'])
+        ]);
+    });
+
+    const grid = DOM_Engine.create('div', 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6', {}, cards);
+    container.appendChild(DOM_Engine.create('div', 'bg-aurora min-h-screen p-2', {}, [headerSec, grid]));
+}
+
+function action_fetchAndExport(sheetName) {
+    const btn = document.getElementById(`btn-export-${sheetName}`);
+    const originalContent = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Menarik Data...';
+    btn.disabled = true;
+
+    google.script.run
+        .withSuccessHandler((res) => {
+            if (res.status === 'success') {
+                sysShowToast("Data ditarik. Menyiapkan format Excel...", "info");
+                action_exportExcel(res.sheetName, res.data, btn, originalContent);
+            } else {
+                sysShowToast(res.message, 'error');
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+            }
+        })
+        .withFailureHandler((err) => {
+            sysShowToast("Koneksi Ekspor Gagal!", "error");
+            btn.innerHTML = originalContent;
+            btn.disabled = false;
+        })
+        .api_adminGetRekapData(sheetName);
+}
+
+function action_downloadDeklarasi(stNumber, logs) {
+    sysShowToast("Mempersiapkan Form Deklarasi...", "info");
+    if (typeof html2pdf === "undefined") {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+        script.onload = () => execute_downloadDeklarasiPDF(stNumber, logs);
+        document.head.appendChild(script);
+    } else { 
+        execute_downloadDeklarasiPDF(stNumber, logs); 
+    }
+}
+
+function action_printDeklarasi(stNumber, logs) {
+    sysShowToast("Mengkompilasi data... Menyiapkan mesin PDF.", "info");
+    if (typeof html2pdf === "undefined") {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+        script.onload = () => execute_downloadPDF(stNumber, logs);
+        document.head.appendChild(script);
+    } else { 
+        execute_downloadPDF(stNumber, logs); 
+    }
+}
+
+function action_exportExcel(sheetName, dataMatrix, btnElement, originalHtml) {
+    if (typeof XLSX === "undefined") {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+        script.onload = () => executeExcelExport(sheetName, dataMatrix, btnElement, originalHtml);
+        document.head.appendChild(script);
+    } else { 
+        executeExcelExport(sheetName, dataMatrix, btnElement, originalHtml); 
+    }
+}
+
+function executeExcelExport(sheetName, dataMatrix, btnElement, originalHtml) {
+    try {
+        // 1. Membuat Workbook dan Worksheet virtual dari Data Matriks Backend
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(dataMatrix);
+        XLSX.utils.book_append_sheet(wb, ws, "Rekap_Payroll");
+        
+        // 2. Format penamaan file otomatis dengan Timestamp
+        const timeStamp = new Date().toISOString().slice(0,10).replace(/-/g,"");
+        const fileName = `C_E_P_U_${sheetName}_${timeStamp}.xlsx`;
+        
+        // 3. Mengunduh file .xlsx
+        XLSX.writeFile(wb, fileName);
+        sysShowToast(`File Excel ${sheetName} berhasil diunduh!`, "success");
+    } catch(e) {
+        console.error("Export Error:", e);
+        sysShowToast("Gagal melakukan kompilasi Excel.", "error");
+    } finally {
+        // 4. Mengembalikan status tombol seperti semula
+        btnElement.innerHTML = originalHtml;
+        btnElement.disabled = false;
+    }
+}
+
+// ==============================================================================
+// MODUL USER: UI LOG PERJALANAN PRIBADI & ESTIMASI UPD
+// ==============================================================================
+
+function renderWorkspace_LogPribadi() {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+    
+    container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center justify-center py-20 fade-in', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-file-invoice fa-spin text-4xl text-blue-500 mb-4'),
+        DOM_Engine.create('p', 'text-slate-500 font-medium tracking-wide', {}, ['Menarik riwayat Surat Tugas dan kalkulasi UPD...'])
+    ]));
+
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') buildUI_LogPribadi(res.data);
+        else { sysShowToast(res.message, 'error'); renderWorkspace_Dinas(); }
+    }).api_getLogPribadi(SysState.user);
+}
+
+// --- CARI DAN GANTI FUNGSI INI DI JS_Dashboard.html ---
+
+function buildUI_LogPribadi(groupedData) {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    const headerSec = DOM_Engine.create('div', 'mb-8 fade-in flex items-end justify-between', {}, [
+        DOM_Engine.create('div', '', {}, [
+            DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [
+                DOM_Engine.create('div', 'p-2 bg-blue-100 rounded-xl', {}, [DOM_Engine.create('i', 'fa-solid fa-map-location-dot text-blue-600')]),
+                'Riwayat Surat Tugas'
+            ]),
+            DOM_Engine.create('p', 'text-slate-500 text-sm mt-2 ml-14', {}, ['Daftar aktivitas perjalanan dinas Anda dan estimasi akumulasi UPD.'])
+        ]),
+        DOM_Engine.create('button', 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2 transition-all', { onClick: renderWorkspace_LogPribadi }, [DOM_Engine.create('i', 'fa-solid fa-rotate-right'), 'Refresh'])
+    ]);
+
+    const stKeys = Object.keys(groupedData);
+    if (stKeys.length === 0) {
+        container.appendChild(DOM_Engine.create('div', 'bg-slate-50 min-h-screen p-2', {}, [headerSec, DOM_Engine.create('div', 'glass text-center py-16 rounded-[2rem] border border-white shadow-premium', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-folder-open text-5xl text-slate-300 mb-4'),
+            DOM_Engine.create('h3', 'text-lg font-bold text-slate-500', {}, ['Belum ada riwayat perjalanan dinas.'])
+        ])]));
+        return;
+    }
+
+const accordions = stKeys.map(st => {
+        const logs = groupedData[st];
+        let totalUPD = 0; let totalDurasi = 0;
+        logs.forEach(l => { totalUPD += l.nominal; totalDurasi += parseFloat(l.durasi); });
+
+        // [FIX SCENARIO 1]: Tombol hanya terkunci jika SEMUA trip di ST ini sudah diprint.
+        // Jika ada trip baru (Hari 3), gembok akan otomatis terbuka kembali.
+        const isAlreadyPrinted = logs.every(l => l.klaim.toUpperCase().includes("SUDAH"));
+
+        const trs = logs.map(l => {
+            const isSelesai = l.status.toUpperCase() === "SELESAI";
+            const isAnomali = l.waktuMasuk && l.waktuMasuk.includes("23:59");
+            const isPrint = l.klaim.toUpperCase().includes("SUDAH"); // Cek SUDAH KLAIM / SUDAH PRINT
+            const textPrint = isPrint ? "SUDAH PRINT" : "BELUM PRINT";
+
+            let colDurasi, colNominal, colKlaim, colPersetujuan;
+
+            // --- LOGIKA KOLOM STATUS PERSETUJUAN (KOLOM U) ---
+            let statusPersetujuan = l.persetujuan ? l.persetujuan.toUpperCase() : "PENDING";
+            let badgePersetujuanColor = 'bg-slate-100 text-slate-500'; 
+            
+            if (isAnomali) {
+                statusPersetujuan = 'SIDANG'; badgePersetujuanColor = 'bg-rose-100 text-rose-600';
+            } else if (statusPersetujuan === 'APPROVED') {
+                badgePersetujuanColor = 'bg-emerald-100 text-emerald-600';
+            } else if (statusPersetujuan.includes('PENDING')) {
+                badgePersetujuanColor = 'bg-amber-100 text-amber-600';
+            }
+
+            colPersetujuan = DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-center', {}, [
+                DOM_Engine.create('span', `text-[10px] font-bold px-3 py-1.5 rounded-full ${badgePersetujuanColor} shadow-sm border border-white`, {}, [statusPersetujuan])
+            ]);
+
+            if (isAnomali) {
+                colDurasi = DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-center', {}, [DOM_Engine.create('span', 'animate-pulse bg-red-500 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg shadow-sm', {}, [DOM_Engine.create('i', 'fa-solid fa-triangle-exclamation'), ' TIDAK SCAN MASUK'])]);
+                colNominal = DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-sm font-extrabold text-rose-500 text-right', {}, ['DITAHAN']);
+                colKlaim = DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-center', {}, [DOM_Engine.create('span', 'text-[10px] font-bold px-3 py-1.5 rounded-full bg-rose-50 border border-rose-200 text-rose-600', {}, ['TERKUNCI'])]);
+            } else {
+                colDurasi = DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-sm font-bold text-slate-700 text-center', {}, [l.durasi + ' Jam']);
+                colNominal = DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-sm font-extrabold text-emerald-600 text-right', {}, ['Rp ' + l.nominal.toLocaleString('id-ID')]);
+                colKlaim = DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-center', {}, [
+                    DOM_Engine.create('span', `text-[10px] font-bold px-3 py-1.5 rounded-full ${isPrint ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`, {}, [textPrint])
+                ]);
+            }
+
+            return DOM_Engine.create('tr', 'hover:bg-slate-50 transition-colors border-b border-slate-100', {}, [
+                DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap', {}, [DOM_Engine.create('p', 'text-sm font-bold text-slate-800', {}, [l.customer])]),
+                DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-sm text-slate-500 font-medium', {}, [l.waktuKeluar]),
+                colDurasi, colNominal,
+                DOM_Engine.create('td', 'px-5 py-4 whitespace-nowrap text-center', {}, [
+                    DOM_Engine.create('span', `text-[10px] font-bold px-3 py-1.5 rounded-full ${isSelesai ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`, {}, [l.status])
+                ]),
+                colPersetujuan, colKlaim
+            ]);
+        });
+
+        const thead = DOM_Engine.create('thead', 'bg-slate-50 border-b border-slate-200', {}, [
+            // Header diganti menjadi Status Print
+            DOM_Engine.create('tr', '', {}, ['Customer Tujuan', 'Waktu Keluar', 'Durasi', 'Nominal UPD', 'Status Jalan', 'Status Persetujuan', 'Status Print'].map(h => DOM_Engine.create('th', 'px-5 py-4 text-left text-xs font-extrabold text-slate-400 uppercase tracking-widest', {}, [h])))
+        ]);
+
+        // [KILLER FEATURE]: Tombol Cetak Terkunci Secara Dinamis
+        let btnCetakPDF;
+        if (isAlreadyPrinted) {
+            btnCetakPDF = DOM_Engine.create('button', 'ml-3 px-3 py-1.5 bg-slate-800 text-slate-500 border border-slate-700 text-xs font-bold rounded-lg shadow-sm flex items-center gap-2 cursor-not-allowed', { 
+                disabled: true, title: 'Dokumen sudah pernah dicetak dan dikunci.' 
+            }, [DOM_Engine.create('i', 'fa-solid fa-lock'), 'Terkunci (Sudah Print)']);
+        } else {
+            btnCetakPDF = DOM_Engine.create('button', 'ml-3 px-3 py-1.5 bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/50 hover:border-transparent text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-2', {
+                onClick: () => {
+                    action_printDeklarasi(st, logs); // Jalankan cetak PDF
+                    action_lockPrintStatus(st);      // Kunci di server via API
+                }
+            }, [DOM_Engine.create('i', 'fa-solid fa-print'), 'Cetak Lampiran PDF']);
+        }
+
+        return DOM_Engine.create('div', 'bg-white rounded-[2rem] shadow-premium border border-slate-100 mb-8 overflow-hidden fade-in-up', {}, [
+            DOM_Engine.create('div', 'bg-slate-900 p-6 sm:px-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative overflow-hidden', {}, [
+                DOM_Engine.create('div', 'absolute -right-10 -top-10 w-32 h-32 bg-indigo-500 rounded-full blur-3xl opacity-20 pointer-events-none'),
+                
+                DOM_Engine.create('div', 'flex items-center gap-4 relative z-10', {}, [
+                    DOM_Engine.create('div', 'w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center text-indigo-400 border border-white/10 backdrop-blur-sm', {}, [DOM_Engine.create('i', 'fa-solid fa-file-signature text-xl')]),
+                    DOM_Engine.create('div', '', {}, [
+                        DOM_Engine.create('p', 'text-[10px] font-bold text-slate-400 uppercase tracking-widest', {}, ['NOMOR SURAT TUGAS']),
+                        DOM_Engine.create('div', 'flex flex-wrap items-center', {}, [
+                            DOM_Engine.create('h4', 'text-xl font-extrabold text-white tracking-wider', {}, [st]),
+                            btnCetakPDF
+                        ])
+                    ])
+                ]),
+                DOM_Engine.create('div', 'flex flex-row items-center gap-6 sm:gap-10 relative z-10', {}, [
+                    DOM_Engine.create('div', 'text-left lg:text-right', {}, [
+                        DOM_Engine.create('p', 'text-[10px] font-bold text-slate-400 uppercase tracking-widest', {}, ['TOTAL DURASI']),
+                        DOM_Engine.create('p', 'text-base font-bold text-white', {}, [totalDurasi.toFixed(2) + ' Jam'])
+                    ]),
+                    DOM_Engine.create('div', 'text-left lg:text-right border-l border-white/10 pl-6 sm:pl-10', {}, [
+                        DOM_Engine.create('p', 'text-[10px] font-bold text-slate-400 uppercase tracking-widest', {}, ['ESTIMASI UPD']),
+                        DOM_Engine.create('p', 'text-xl font-extrabold text-emerald-400', {}, ['Rp ' + totalUPD.toLocaleString('id-ID')])
+                    ])
+                ])
+            ]),
+            DOM_Engine.create('div', 'overflow-x-auto', {}, [
+                DOM_Engine.create('table', 'min-w-full', {}, [thead, DOM_Engine.create('tbody', '', {}, trs)])
+            ])
+        ]);
+    });
+
+    container.appendChild(DOM_Engine.create('div', 'bg-slate-50 min-h-screen p-2', {}, [headerSec, DOM_Engine.create('div', '', {}, accordions)]));
+}
+
+// FUNGSI PENGHUBUNG API PENGUNCI
+function action_lockPrintStatus(stNumber) {
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') {
+            // Refresh tabel 3 detik setelah cetak agar tombol langsung tergembok di UI
+            setTimeout(() => renderWorkspace_LogPribadi(), 3000); 
+        }
+    }).api_updatePrintStatus(stNumber, SysState.user);
+}
+
+// --- WORKSPACE CETAK DEKLARASI ---
+function renderWorkspace_CetakDeklarasi() {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+    
+    container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center justify-center py-20 fade-in', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-file-contract fa-spin text-4xl text-purple-500 mb-4'),
+        DOM_Engine.create('p', 'text-slate-500 font-medium tracking-wide', {}, ['Memuat data form deklarasi perjalanan...'])
+    ]));
+
+    // Re-use API yang sama untuk mengambil Log Pribadi (Kompilasi Grup ST)
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') buildUI_CetakDeklarasi(res.data);
+        else { sysShowToast(res.message, 'error'); renderWorkspace_Dinas(); }
+    }).api_getLogPribadi(SysState.user);
+}
+
+// --- UI DASHBOARD CETAK DEKLARASI ---
+function buildUI_CetakDeklarasi(groupedData) {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    const headerSec = DOM_Engine.create('div', 'mb-8 fade-in flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4', {}, [
+        DOM_Engine.create('div', '', {}, [
+            DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [
+                DOM_Engine.create('div', 'p-2 bg-purple-100 rounded-xl', {}, [DOM_Engine.create('i', 'fa-solid fa-print text-purple-600')]),
+                'Cetak Deklarasi Dinas'
+            ]),
+            DOM_Engine.create('p', 'text-slate-500 text-sm mt-2 ml-14', {}, ['Ekspor form deklarasi resmi untuk klaim perjalanan per Nomor Surat Tugas.'])
+        ]),
+        DOM_Engine.create('button', 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2 transition-all', { onClick: renderWorkspace_CetakDeklarasi }, [DOM_Engine.create('i', 'fa-solid fa-rotate-right'), 'Refresh'])
+    ]);
+
+    const stKeys = Object.keys(groupedData);
+    if (stKeys.length === 0) {
+        container.appendChild(DOM_Engine.create('div', 'bg-slate-50 min-h-screen p-2', {}, [headerSec, DOM_Engine.create('div', 'glass text-center py-16 rounded-[2rem] border border-white shadow-premium', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-folder-open text-5xl text-slate-300 mb-4'),
+            DOM_Engine.create('h3', 'text-lg font-bold text-slate-500', {}, ['Belum ada data perjalanan untuk dicetak.'])
+        ])]));
+        return;
+    }
+
+    const cards = stKeys.map(st => {
+        const logs = groupedData[st];
+        let isComplete = logs.every(l => l.status.toUpperCase() === "SELESAI");
+
+        return DOM_Engine.create('div', 'glass p-6 rounded-[1.5rem] shadow-premium hover:shadow-2xl transition-all border border-purple-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group fade-in-up', {}, [
+            DOM_Engine.create('div', 'flex items-center gap-5', {}, [
+                DOM_Engine.create('div', 'w-14 h-14 flex-shrink-0 bg-gradient-to-br from-purple-500 to-indigo-600 text-white rounded-2xl flex items-center justify-center text-2xl shadow-lg', {}, [DOM_Engine.create('i', 'fa-solid fa-file-invoice')]),
+                DOM_Engine.create('div', 'overflow-hidden', {}, [
+                    DOM_Engine.create('h3', 'text-xl font-extrabold text-slate-800 tracking-wider truncate', {}, [st]),
+                    DOM_Engine.create('p', 'text-xs font-bold text-slate-500 uppercase mt-0.5', {}, [logs.length + ' Titik Kunjungan | Status: ', 
+                        DOM_Engine.create('span', isComplete ? 'text-emerald-500' : 'text-amber-500', {}, [isComplete ? 'TUNTAS' : 'SEBAGIAN JALAN'])
+                    ])
+                ])
+            ]),
+            DOM_Engine.create('button', 'w-full sm:w-auto px-6 py-3 bg-slate-900 hover:bg-purple-600 text-white rounded-xl font-bold text-sm shadow-md transition-all hover:-translate-y-1 flex items-center justify-center gap-2', {
+                onClick: () => action_downloadDeklarasi(st, logs) // Memanggil Mesin Deklarasi Baru
+            }, [DOM_Engine.create('i', 'fa-solid fa-file-pdf'), 'Unduh Form'])
+        ]);
+    });
+
+    const grid = DOM_Engine.create('div', 'grid grid-cols-1 lg:grid-cols-2 gap-5', {}, cards);
+    container.appendChild(DOM_Engine.create('div', 'bg-slate-50 min-h-screen p-2', {}, [headerSec, grid]));
+}
+
+
+
+function execute_downloadDeklarasiPDF(stNumber, logs) {
+    sysShowToast("Mempersiapkan Form Deklarasi + Digital Signature...", "info");
+
+// [INJEKSI QR CODE] - WAJIB GANTI URL INI DENGAN URL DEPLOYMENT WEB APP ANDA!
+    const webAppUrl = "https://script.google.com/macros/s/AKfycbycL6s5-tU3dOlMjksN6OzLcbOcjAxQHhndvXLIaplyi12ELWBg3Wy0xzN_dyy23TVT/exec"; 
+    const verificationUrl = webAppUrl + "?verify_st=" + stNumber + "&nrpp=" + SysState.user.nrpp;
+    const qrCodeImage = "https://quickchart.io/qr?text=" + encodeURIComponent(verificationUrl) + "&size=80&margin=0";
+
+    let berangkat = logs.length > 0 ? logs[0].waktuKeluar : '-';
+    let kembali = logs.length > 0 ? logs[logs.length-1].waktuMasuk : '-';
+    let customer = logs.length > 0 ? logs[0].customer : '-';
+    let lokasiDestinasi = logs.length > 0 ? logs[0].lokasi : '-';
+
+    let minTglKeluar = null;
+    if (berangkat !== '-') {
+        let datePart = berangkat.split(' ')[0].split('/');
+        if (datePart.length === 3) {
+            minTglKeluar = new Date(parseInt(datePart[2]), parseInt(datePart[1]) - 1, parseInt(datePart[0]));
+        }
+    }
+
+    const bulanRomawi = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+    const tglReferensi = minTglKeluar ? minTglKeluar : new Date(); 
+    const blnRomawi_Str = bulanRomawi[tglReferensi.getMonth()];
+    const thn_Str = tglReferensi.getFullYear();
+    const formatST = (num) => isNaN(num) ? num : String(num).padStart(3, '0');
+    
+    const formatSTLengkap = `${formatST(stNumber)}/JKT/ST-PS/${blnRomawi_Str}/${thn_Str}`;
+
+    let tripsHtml = '';
+    let grandTotal = 0;
+    let totalBaris = logs.length;
+    let batasBarisTetap = 10;
+
+    const fmt = (num) => (num && num > 0) ? num.toLocaleString('id-ID') : '';
+    const namaHariArray = ["MINGGU", "SENIN", "SELASA", "RABU", "KAMIS", "JUMAT", "SABTU"];
+
+    for (let i = 0; i < totalBaris; i++) {
+        let bd = logs[i].breakdown || { upd: 0, makanSiang: 0, makanTotal: 0, lain: 0, total: 0 };
+        grandTotal += bd.total;
+        
+        let tglOnly = '-';
+        if (logs[i].waktuKeluar) {
+            let dateStr = logs[i].waktuKeluar.split(' ')[0]; 
+            let parts = dateStr.split('/');
+            if (parts.length === 3) {
+                let d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                let namaHari = namaHariArray[d.getDay()]; 
+                tglOnly = `${namaHari}, ${dateStr}`; 
+            } else {
+                tglOnly = dateStr;
+            }
+        }
+
+        tripsHtml += `
+        <tr>
+          <td class="text-left">${tglOnly}</td>
+          <td class="text-left"></td>
+          <td></td>
+          <td></td>
+          <td class="text-right">${fmt(bd.upd)}</td>
+          <td></td>
+          <td class="text-right">${fmt(bd.makanSiang)}</td>
+          <td></td>
+          <td class="text-right">${fmt(bd.makanTotal)}</td>
+          <td></td>
+          <td class="text-right">${fmt(bd.lain)}</td>
+          <td class="text-right" style="font-weight: bold;">${fmt(bd.total)}</td>
+        </tr>`;
+    }
+
+    for (let j = totalBaris; j < batasBarisTetap; j++) {
+        tripsHtml += `<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
+    }
+
+    const pdfContainer = document.createElement('div');
+    pdfContainer.style.fontFamily = 'Arial, sans-serif';
+    pdfContainer.style.fontSize = '8pt';
+    pdfContainer.style.color = '#000';
+    pdfContainer.style.backgroundColor = '#fff';
+
+    // DI SINI ADALAH TEMPLATE ASLI ANDA 100%. 
+    // SAYA HANYA MENYISIPKAN <img src="${qrCodeImage}"> PADA BAGIAN "Disusun oleh" DI PALING BAWAH.
+    pdfContainer.innerHTML = `
+      <style>
+        .judul { text-align: center; font-size: 11pt; font-weight: bold; margin-bottom: 5px; margin-top: 0px; color: #000; }
+        table { width: 100%; border-collapse: collapse; page-break-inside: avoid; color: #000; }
+        .table-kop { margin-bottom: 6px; }
+        .table-kop td { border: 1px solid #000; padding: 1px 4px; height: 14px; vertical-align: middle; white-space: nowrap; font-size: 8pt; }
+        .table-data td, .table-data th { border: 1px solid #000; padding: 1px 4px; height: 14px; vertical-align: middle; font-size: 8pt; }
+        .table-data th { text-align: center; font-weight: normal; }
+        .table-ttd { width: 60%; margin-top: 8px; font-size: 8pt; page-break-inside: avoid; }
+        .table-ttd th, .table-ttd td { border: 1px solid #000; padding: 2px; text-align: center; vertical-align: top; }
+        .table-ttd th { font-weight: normal; }
+        .text-center { text-align: center; } .text-right { text-align: right; } .text-left { text-align: left; }
+      </style>
+
+      <div class="judul">LAPORAN DEKLARASI PERJALANAN DINAS</div>
+
+      <table class="table-kop">
+        <tr>
+          <td style="width: 14%">No. Surat Tugas</td><td style="width: 20%">: ${formatSTLengkap}</td>
+          <td style="width: 14%">NAMA</td><td style="width: 15%">: ${SysState.user.nama}</td>
+          <td style="width: 14%">Tgl / Jam Berangkat</td><td style="width: 8%">: ${berangkat}</td>
+          <td style="width: 15%">Cabang / Site / Customer</td><td style="width: 10%">: ${customer}</td>
+        </tr>
+        <tr>
+          <td>No. Work Order</td><td>:</td>
+          <td>Dept / Cost Center</td><td>: ${SysState.user.departemen}</td>
+          <td>Tgl / Jam Kembali</td><td>: ${kembali}</td>
+          <td>Lokasi</td><td>: ${lokasiDestinasi}</td>
+        </tr>
+        <tr>
+          <td>No. SR</td><td>:</td>
+          <td>Jabatan / Golongan</td><td>: ${SysState.user.jabatan} / ${SysState.user.golongan}</td>
+          <td>Tiket Pesawat</td><td>: Beli Sendiri / Kantor **)</td>
+          <td>No. Polisi / Kendaraan*)</td><td>: -</td>
+        </tr>
+        <tr>
+          <td>No. Invoice</td><td>:</td>
+          <td>No. Dokumen</td><td>:</td>
+          <td>Radius / Jam</td><td>:</td>
+          <td></td><td></td>
+        </tr>
+        <tr>
+          <td>Uraian Pekerjaan</td><td colspan="3">: PM/INSTALL PART/TROUBLESHOOTING</td>
+          <td>Keterangan</td><td colspan="3">: Waranty / Non Waranty / Visit / Lain2**)</td>
+        </tr>
+      </table>
+
+      <table class="table-data">
+        <thead>
+          <tr>
+            <th rowspan="2" style="width: 14%">Tanggal</th>
+            <th rowspan="2" style="width: 15%">Keterangan</th>
+            <th rowspan="2" style="width: 7%">Transport*)</th>
+            <th rowspan="2" style="width: 6%">Hotel</th>
+            <th rowspan="2" style="width: 7%">UPD / TLM</th>
+            <th colspan="4" style="width: 22%">Makan</th>
+            <th rowspan="2" style="width: 7%">Entertain</th>
+            <th rowspan="2" style="width: 10%">Lain-Lain</th>
+            <th rowspan="2" style="width: 12%">Total<br />Seluruh</th>
+          </tr>
+          <tr>
+            <th style="width: 5%">Pagi</th><th style="width: 5%">Siang</th><th style="width: 6%">Malam</th><th style="width: 6%">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tripsHtml}
+          <tr>
+            <td colspan="9" rowspan="3" style="border: none; border-top: 1px solid #000; text-align: left; vertical-align: top; padding-top: 4px">
+              NOTE :<br />
+              *) Dilampirkan dengan formulir pengeluaran untuk kendaraan (bila menggunakan kendaraan kantor)<br />
+              **) Coret yang tidak perlu
+            </td>
+            <td colspan="2" class="text-left" style="border: 1px solid #000">Total</td>
+            <td class="text-right" style="border: 1px solid #000; font-weight: bold;">${grandTotal.toLocaleString('id-ID')}</td>
+          </tr>
+          <tr>
+            <td colspan="2" class="text-left" style="border: 1px solid #000">Uang Muka / Advance No.&nbsp;&nbsp;&nbsp;${formatSTLengkap}</td>
+            <td class="text-right" style="border: 1px solid #000">0</td>
+          </tr>
+          <tr>
+            <td colspan="2" class="text-left" style="border: 1px solid #000">Kekurangan / Kelebihan**)</td>
+            <td class="text-right" style="border: 1px solid #000; font-weight: bold;">-${grandTotal.toLocaleString('id-ID')}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <table class="table-ttd">
+        <tr>
+          <th rowspan="2" style="width: 25%; vertical-align: middle">Disusun oleh,</th>
+          <th colspan="2">Diperiksa Oleh,</th>
+          <th rowspan="2" style="width: 25%; vertical-align: middle">Disetujui Finance Dept</th>
+        </tr>
+        <tr>
+          <th style="width: 25%">Dept./Div.Head/Director</th>
+          <th style="width: 25%">HRGA Div</th>
+        </tr>
+        <tr>
+          <td style="height: 70px; vertical-align: bottom; position: relative;">
+            <img src="${qrCodeImage}" style="width: 50px; height: 50px; margin: 0 auto; display: block;" />
+            <div style="font-size: 5pt; font-weight: bold; color: #555; margin-top: 2px;">DIGITAL VERIFIED</div>
+            ${SysState.user.nama}
+          </td>
+          <td style="height: 70px"></td>
+          <td style="height: 70px"></td>
+          <td style="height: 70px"></td>
+        </tr>
+      </table>
+    `;
+
+    const prefixName = `CEPU_Deklarasi_ST_${stNumber}_NRPP_${SysState.user.nrpp}`;
+    const opt = {
+        margin:       [0.48, 0.2, 0.8, 0.2], 
+        filename:     `${prefixName}.pdf`,
+        image:        { type: 'jpeg', quality: 1 },
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'in', format: 'a4', orientation: 'landscape' }
+    };
+
+    html2pdf().set(opt).from(pdfContainer).save().then(() => {
+        sysShowToast("Deklarasi PDF + Digital Signature berhasil diunduh!", "success");
+    }).catch(err => {
+        console.error("PDF Export Error:", err);
+        sysShowToast("Gagal mengkompilasi PDF.", "error");
+    });
+}
+
+function execute_downloadPDF(stNumber, logs) {
+    sysShowToast("Mengekspor ke format PDF Enterprise...", "info");
+
+    const now = new Date();
+    const tglCetak = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) + ' ' + 
+                     now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+
+    let rowsHtml = '';
+    let totalDurasi = 0;
+    let totalNominal = 0;
+
+    if (logs.length === 0) {
+        rowsHtml = '<tr><td colspan="7" style="padding: 30px; color: #94a3b8; text-align: center; font-style: italic;">Tidak ada riwayat perjalanan terdeteksi untuk Surat Tugas ini.</td></tr>';
+    } else {
+        logs.forEach((log, index) => {
+            totalDurasi += parseFloat(log.durasi) || 0;
+            totalNominal += parseFloat(log.nominal) || 0;
+
+            let valClass = "badge-pen";
+            let valText = "PENDING";
+            let persetujuanUpper = log.persetujuan ? log.persetujuan.toUpperCase() : "PENDING";
+            let isAnomali = log.waktuMasuk && log.waktuMasuk.includes("23:59");
+            
+            if (isAnomali) { valClass = "badge-err"; valText = "SIDANG"; }
+            else if (persetujuanUpper === "APPROVED") { valClass = "badge-app"; valText = "APPROVED"; }
+
+            rowsHtml += `
+            <tr>
+              <td class="text-center" style="color: #64748b; font-weight: bold;">${index + 1}</td>
+              <td class="text-left">
+                <strong style="color: #0f172a; display: block; font-size: 8.5pt;">${log.customer}</strong>
+                <span style="color:#64748b; font-size:7.5pt;">${log.lokasi}</span>
+              </td>
+              <td class="text-center" style="color: #475569; font-weight: 500;">
+                <div style="font-size: 7pt; color: #94a3b8; text-transform: uppercase;">Keluar</div>${log.waktuKeluar}
+              </td>
+              <td class="text-center" style="color: #475569; font-weight: 500;">
+                <div style="font-size: 7pt; color: #94a3b8; text-transform: uppercase;">Masuk</div>
+                <span style="${isAnomali ? 'color: #ef4444; font-weight: 700;' : ''}">${log.waktuMasuk}</span>
+              </td>
+              <td class="text-center"><strong style="color: #334155;">${log.durasi} Jam</strong></td>
+              <td class="text-right"><strong style="color: #0f172a;">Rp ${log.nominal.toLocaleString('id-ID')}</strong></td>
+              <td class="text-center"><span class="${valClass}">${valText}</span></td>
+            </tr>`;
+        });
+    }
+
+    const prefixName = `CEPU_Log_Perjalanan_ST_${stNumber}_NRPP_${SysState.user.nrpp}`;
+
+    const pdfContainer = document.createElement('div');
+    pdfContainer.style.padding = '40px 50px'; 
+    pdfContainer.style.fontFamily = "'Helvetica Neue', Helvetica, Arial, sans-serif";
+    pdfContainer.style.backgroundColor = "#ffffff";
+    pdfContainer.style.position = "relative";
+    
+    pdfContainer.innerHTML = `
+      <style>
+        * { box-sizing: border-box; }
+        .kop-title { font-size: 24pt; font-weight: 900; color: #1e3a8a; letter-spacing: -0.5px; margin: 0; line-height: 1; }
+        .kop-subtitle { font-size: 9pt; font-weight: 700; color: #64748b; letter-spacing: 2px; text-transform: uppercase; margin-top: 5px; }
+        
+        .doc-type { font-size: 14pt; font-weight: 900; color: #0f172a; text-transform: uppercase; margin-bottom: 4px; }
+        .doc-meta { font-size: 8.5pt; color: #64748b; font-weight: 500; }
+        
+        .user-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px 20px; margin-bottom: 25px; width: 100%; display: table; }
+        .user-col { display: table-cell; width: 33.33%; border-right: 1px solid #e2e8f0; padding-left: 15px; }
+        .user-col:first-child { padding-left: 0; }
+        .user-col:last-child { border-right: none; }
+        .u-label { font-size: 7.5pt; color: #94a3b8; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px; margin-bottom: 3px; }
+        .u-val { font-size: 10pt; color: #0f172a; font-weight: 700; }
+        
+        .summary-grid { display: table; width: 100%; border-spacing: 15px 0; margin-left: -15px; margin-right: -15px; margin-bottom: 30px; }
+        .sum-box { display: table-cell; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; padding: 15px; text-align: center; width: 33.33%; border-top: 4px solid #3b82f6; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .sum-box.green { border-top-color: #10b981; }
+        .sum-label { font-size: 7.5pt; color: #64748b; text-transform: uppercase; font-weight: 800; margin-bottom: 5px; letter-spacing: 0.5px; }
+        .sum-val { font-size: 18pt; font-weight: 900; color: #0f172a; }
+        
+        .data-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 8.5pt; }
+        .data-table th, .data-table td { border-bottom: 1px solid #e2e8f0; padding: 14px 10px; vertical-align: middle; }
+        .data-table th { background-color: #f8fafc; font-weight: 800; text-transform: uppercase; font-size: 7.5pt; color: #475569; border-top: 1px solid #cbd5e1; border-bottom: 2px solid #cbd5e1; letter-spacing: 0.5px; }
+        .data-table tbody tr:last-child td { border-bottom: 2px solid #cbd5e1; }
+        
+        .text-center { text-align: center; } .text-right { text-align: right; } .text-left { text-align: left; }
+        
+        .badge-app { color: #059669; font-weight: 800; background: #ecfdf5; padding: 5px 10px; border-radius: 6px; font-size: 7.5pt; border: 1px solid #a7f3d0; } 
+        .badge-pen { color: #d97706; font-weight: 800; background: #fffbeb; padding: 5px 10px; border-radius: 6px; font-size: 7.5pt; border: 1px solid #fde68a; } 
+        .badge-err { color: #e11d48; font-weight: 800; background: #ffe4e6; padding: 5px 10px; border-radius: 6px; font-size: 7.5pt; border: 1px solid #fecdd3; }
+        
+        .footer { display: table; width: 100%; margin-top: 20px; font-size: 8.5pt; color: #475569; page-break-inside: avoid; }
+        .f-col { display: table-cell; width: 50%; vertical-align: top; }
+        .ttd-area { text-align: right; }
+        .ttd-title { font-weight: 700; color: #64748b; margin-bottom: 70px; font-size: 9pt; }
+        .ttd-name { font-weight: 800; color: #0f172a; text-decoration: underline; font-size: 10pt; }
+        .ttd-role { font-size: 7.5pt; color: #94a3b8; margin-top: 3px; text-transform: uppercase; font-weight: bold; }
+      </style>
+      
+      <table style="width: 100%; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 20px;">
+        <tr>
+            <td style="vertical-align: bottom;">
+                <h1 class="kop-title">C.E.P.U</h1>
+                <div class="kop-subtitle">Catatan Evaluasi Pekerja Utama</div>
+            </td>
+            <td style="text-align: right; vertical-align: bottom;">
+                <div class="doc-type">Log Perjalanan Dinas</div>
+                <div class="doc-meta">No. Surat Tugas: <strong style="color:#2563eb; font-size: 10pt;">${stNumber}</strong><br>Dicetak: ${tglCetak}</div>
+            </td>
+        </tr>
+      </table>
+      
+      <div class="user-card">
+        <div class="user-col">
+            <div class="u-label">Nama Personel / NRPP</div>
+            <div class="u-val">${SysState.user.nama} <span style="color:#64748b; font-weight:500;">(${SysState.user.nrpp})</span></div>
+        </div>
+        <div class="user-col">
+            <div class="u-label">Jabatan / Golongan</div>
+            <div class="u-val">${SysState.user.jabatan} / ${SysState.user.golongan}</div>
+        </div>
+        <div class="user-col">
+            <div class="u-label">Departemen / Lokasi</div>
+            <div class="u-val">${SysState.user.departemen} - ${SysState.user.lokasi}</div>
+        </div>
+      </div>
+      
+      <div class="summary-grid">
+        <div class="sum-box">
+            <div class="sum-label">Total Kunjungan</div>
+            <div class="sum-val">${logs.length} <span style="font-size:10pt; color:#64748b; font-weight:600;">Lokasi</span></div>
+        </div>
+        <div class="sum-box">
+            <div class="sum-label">Akumulasi Durasi</div>
+            <div class="sum-val">${totalDurasi.toFixed(2)} <span style="font-size:10pt; color:#64748b; font-weight:600;">Jam</span></div>
+        </div>
+        <div class="sum-box green">
+            <div class="sum-label">Total Estimasi UPD</div>
+            <div class="sum-val" style="color: #059669;"><span style="font-size:12pt; color:#10b981;">Rp</span> ${totalNominal.toLocaleString('id-ID')}</div>
+        </div>
+      </div>
+      
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width: 5%;">No</th>
+            <th style="width: 25%; text-align: left;">Customer & Destinasi</th>
+            <th style="width: 14%;">Waktu Berangkat</th>
+            <th style="width: 14%;">Waktu Kepulangan</th>
+            <th style="width: 11%;">Durasi</th>
+            <th style="width: 16%; text-align: right;">Estimasi Nominal</th>
+            <th style="width: 15%;">Persetujuan HRD</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+      
+      <div class="footer">
+        <div class="f-col" style="padding-right: 20px;">
+            <strong style="color: #0f172a; font-size: 9pt;">Otorisasi Sistem Terenkripsi</strong><br>
+            <span style="font-size: 7.5pt; color: #64748b; line-height: 1.6; display: inline-block; margin-top: 6px;">
+                Dokumen ini digenerate secara otomatis oleh C.E.P.U Enterprise Engine.<br>
+                Data perjalanan telah divalidasi dan dikunci menggunakan protokol Anti-Fraud<br>
+                melalui pemindaian Geolokasi GPS dan POS Barcode Scanner di lapangan.<br>
+                Valid untuk diajukan sebagai lampiran resmi proses pencairan dana.
+            </span>
+        </div>
+        <div class="f-col ttd-area">
+            <div class="ttd-title">Disetujui & Divalidasi Oleh,</div>
+            <div class="ttd-name">HRD</div>
+            <div class="ttd-role">Tanda Tangan</div>
+        </div>
+      </div>
+    `;
+
+    const opt = {
+        margin:       [0.3, 0.2, 0.3, 0.2], // Margin yang lega (Atas, Kanan, Bawah, Kiri)
+        filename:     `${prefixName}.pdf`,
+        image:        { type: 'jpeg', quality: 1 },
+        html2canvas:  { scale: 2, useCORS: true, logging: false },
+        jsPDF:        { unit: 'in', format: 'a4', orientation: 'landscape' }
+    };
+
+    html2pdf().set(opt).from(pdfContainer).save().then(() => {
+        sysShowToast("Laporan Enterprise PDF berhasil diunduh!", "success");
+    }).catch(err => {
+        console.error("PDF Export Error:", err);
+        sysShowToast("Gagal mengkompilasi PDF.", "error");
+    });
+}
+
+// ==============================================================================
+// SUB-MENU 2: AUDIT LOG INDIVIDU (30 HARI)
+// ==============================================================================
+
+function action_openSubMenu_AuditLog() {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+    
+    container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center justify-center py-20 fade-in', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-user-clock fa-spin text-4xl text-blue-500 mb-4'),
+        DOM_Engine.create('p', 'text-slate-500 font-medium tracking-wide', {}, ['Mempersiapkan direktori log karyawan...'])
+    ]));
+
+    google.script.run.withSuccessHandler((res) => {
+        if (res.status === 'success') buildUI_AuditLogSelection(res.data);
+        else { sysShowToast(res.message, 'error'); renderWorkspace_KelolaKaryawan(); }
+    }).api_adminGetKaryawanDetails();
+}
+
+function buildUI_AuditLogSelection(dataKaryawan) {
+    DOM_Engine.clear('nav-workspace');
+    const container = document.getElementById('nav-workspace');
+
+    const btnBack = DOM_Engine.create('button', 'text-slate-500 hover:text-indigo-600 font-medium flex items-center gap-2 mb-6 transition-colors', { onClick: renderWorkspace_KelolaKaryawan }, [DOM_Engine.create('i', 'fa-solid fa-arrow-left'), ' Kembali ke HRIS Center']);
+
+    // [UPDATE KILLER UI]: Header section dengan Search Bar di sebelah kanan
+    const headerSec = DOM_Engine.create('div', 'mb-8 fade-in flex flex-col md:flex-row md:items-end justify-between gap-4', {}, [
+        DOM_Engine.create('div', '', {}, [
+            btnBack,
+            DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [DOM_Engine.create('i', 'fa-solid fa-user-clock text-blue-500'), 'Audit Perjalanan 30 Hari']),
+            DOM_Engine.create('p', 'text-slate-500 text-sm mt-1', {}, ['Pilih karyawan untuk mengunduh laporan aktivitas bulanan.'])
+        ]),
+        // --- SEARCH ENGINE BAR ---
+        DOM_Engine.create('div', 'bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center gap-3 shadow-sm flex-shrink-0', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-magnifying-glass text-slate-400'),
+            DOM_Engine.create('input', 'bg-transparent border-none outline-none text-sm font-semibold text-slate-700 w-full md:w-64 placeholder-slate-400', { 
+                type: 'text', placeholder: 'Cari Nama / NRPP / Jabatan...',
+                onInput: (e) => {
+                    const term = e.target.value.toLowerCase();
+                    document.querySelectorAll('.audit-card').forEach(card => {
+                        const dataText = card.getAttribute('data-search'); // Pindai dari atribut tersembunyi
+                        card.style.display = dataText.includes(term) ? 'flex' : 'none';
+                    });
+                }
+            })
+        ])
+    ]);
+
+    const cards = dataKaryawan.map(k => {
+        return DOM_Engine.create('div', 'audit-card glass p-6 rounded-[1.5rem] shadow-premium hover:shadow-2xl transition-all border border-white flex flex-col justify-between group', {
+            // Injeksi Search Parameter
+            'data-search': `${k.nama} ${k.nrpp} ${k.jabatan}`.toLowerCase()
+        }, [
+            DOM_Engine.create('div', 'flex items-center gap-4 mb-5', {}, [
+                DOM_Engine.create('div', 'w-14 h-14 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center text-xl font-black shadow-inner flex-shrink-0', {}, [k.nama.charAt(0).toUpperCase()]),
+                DOM_Engine.create('div', 'overflow-hidden', {}, [
+                    DOM_Engine.create('h3', 'text-lg font-bold text-slate-800 tracking-tight truncate', {}, [k.nama]),
+                    DOM_Engine.create('p', 'text-[10px] font-bold text-slate-400 uppercase tracking-wider', {}, [k.nrpp + ' • ' + k.jabatan]) // Menambahkan Info Jabatan
+                ])
+            ]),
+            DOM_Engine.create('button', 'w-full py-3 bg-slate-900 hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition-all shadow-md flex justify-center items-center gap-2', { 
+                onClick: () => execute_generateIndividualAuditPDF(k)
+            }, [DOM_Engine.create('i', 'fa-solid fa-file-pdf'), 'Generate Audit Log'])
+        ]);
+    });
+
+    const grid = DOM_Engine.create('div', 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6', {}, cards);
+    container.appendChild(DOM_Engine.create('div', 'bg-aurora min-h-screen p-2', {}, [headerSec, grid]));
+}
+
+// ==========================================================
+// MODAL PEMILIH BULAN & TAHUN (MEWAH)
+// ==========================================================
+function execute_generateIndividualAuditPDF(user) {
+    const modalId = 'modal-audit-picker';
+    const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+    const currentYear = new Date().getFullYear();
+
+    const btnCancel = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors', { 
+        onClick: () => document.getElementById(modalId).remove() 
+    }, ['Batal']);
+
+    const btnConfirm = DOM_Engine.create('button', 'w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5', {
+        id: 'btn-exec-generate-pdf',
+        onClick: () => {
+            const m = document.getElementById('sel-audit-month').value;
+            const y = document.getElementById('sel-audit-year').value;
+            const btn = document.getElementById('btn-exec-generate-pdf');
+            
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Menarik Data...';
+            btn.disabled = true;
+
+            google.script.run.withSuccessHandler((res) => {
+                document.getElementById(modalId).remove();
+                if (res.status === 'success') {
+                    if (res.data.length === 0) {
+                        sysShowToast("Tidak ada data perjalanan di periode tersebut.", "info");
+                    } else {
+                        // Pastikan html2pdf terload sebelum eksekusi
+                        if (typeof html2pdf === "undefined") {
+                            const script = document.createElement("script");
+                            script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+                            script.onload = () => renderPDF_IndividualAudit(user, res.data, res.filter);
+                            document.head.appendChild(script);
+                        } else {
+                            renderPDF_IndividualAudit(user, res.data, res.filter);
+                        }
+                    }
+                } else sysShowToast(res.message, "error");
+            }).api_adminGetIndividualLogs(user.nrpp, m, y);
+        }
+    }, [DOM_Engine.create('i', 'fa-solid fa-file-pdf'), 'Cetak Audit Log']);
+
+    const modalContent = DOM_Engine.create('div', 'bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden border border-slate-100 p-8 text-center relative fade-in-up', {}, [
+        DOM_Engine.create('div', 'w-16 h-16 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-inner', {}, [
+            DOM_Engine.create('i', 'fa-solid fa-calendar-check text-3xl')
+        ]),
+        DOM_Engine.create('h3', 'font-extrabold text-slate-800 text-2xl mb-1 tracking-tight', {}, ['Pilih Periode Audit']),
+        DOM_Engine.create('p', 'text-xs text-slate-500 mb-6', {}, [`Tentukan bulan laporan untuk ${user.nama}`]),
+        
+        DOM_Engine.create('div', 'space-y-4 mb-8 text-left', {}, [
+            DOM_Engine.create('div', '', {}, [
+                DOM_Engine.create('label', 'text-[10px] font-bold text-slate-400 uppercase ml-1', {}, ['Pilih Bulan']),
+                DOM_Engine.create('select', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1', { id: 'sel-audit-month' }, 
+                    months.map((m, i) => DOM_Engine.create('option', '', { value: i, selected: i === new Date().getMonth() }, [m]))
+                )
+            ]),
+            DOM_Engine.create('div', '', {}, [
+                DOM_Engine.create('label', 'text-[10px] font-bold text-slate-400 uppercase ml-1', {}, ['Pilih Tahun']),
+                DOM_Engine.create('select', 'input-premium w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold mt-1', { id: 'sel-audit-year' }, 
+                    [currentYear, currentYear-1].map(y => DOM_Engine.create('option', '', { value: y }, [y.toString()]))
+                )
+            ])
+        ]),
+        
+        DOM_Engine.create('div', 'flex flex-col sm:flex-row justify-center gap-3', {}, [btnCancel, btnConfirm])
+    ]);
+
+    document.body.appendChild(DOM_Engine.create('div', 'fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[150] flex items-center justify-center p-4 fade-in', { id: modalId }, [modalContent]));
+}
+
+// ==========================================================
+// RENDER PDF INDIVIDU (PIXEL-PERFECT ENTERPRISE TEMPLATE)
+// ==========================================================
+function renderPDF_IndividualAudit(user, logs, filter) {
+    sysShowToast("Membangun dokumen PDF premium...", "info");
+    const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+    const periodeStr = `${months[filter.month]} ${filter.year}`;
+    const now = new Date();
+    const tglCetak = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) + ' ' + 
+                     now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+
+    let totalDurasi = 0, totalNominal = 0;
+    
+    // Looping Data Tabel dengan Desain Striped (Belang-belang) & Badge Status
+    let rowsHtml = logs.map((l, i) => {
+        totalDurasi += l.durasi; totalNominal += l.nominal;
+        
+        const bgRow = i % 2 === 0 ? '#ffffff' : '#f8fafc'; // Efek Zebra Cross untuk tabel
+        let badgeColor = l.persetujuan.toUpperCase() === 'APPROVED' ? '#059669' : (l.persetujuan.toUpperCase().includes('PENDING') ? '#d97706' : '#e11d48');
+        let badgeBg = l.persetujuan.toUpperCase() === 'APPROVED' ? '#ecfdf5' : (l.persetujuan.toUpperCase().includes('PENDING') ? '#fffbeb' : '#ffe4e6');
+
+        return `
+            <tr style="background-color: ${bgRow};">
+                <td style="text-align:center; border-bottom: 1px solid #e2e8f0; padding: 12px 8px; color:#475569;">${i+1}</td>
+                <td style="border-bottom: 1px solid #e2e8f0; padding: 12px 8px; color:#334155; font-weight: 500;">${l.tanggal}</td>
+                <td style="border-bottom: 1px solid #e2e8f0; padding: 12px 8px;">
+                    <strong style="color:#0f172a; display:block; margin-bottom:2px;">${l.customer}</strong>
+                    <span style="color:#64748b; font-size:7.5pt;">${l.lokasi}</span>
+                </td>
+                <td style="text-align:center; border-bottom: 1px solid #e2e8f0; padding: 12px 8px; font-weight:bold; color:#334155;">${l.durasi.toFixed(2)} <span style="font-size: 7pt; color: #94a3b8; font-weight: normal;">Jam</span></td>
+                <td style="text-align:right; border-bottom: 1px solid #e2e8f0; padding: 12px 8px; font-weight:bold; color:#0f172a;">Rp ${l.nominal.toLocaleString('id-ID')}</td>
+                <td style="text-align:center; border-bottom: 1px solid #e2e8f0; padding: 12px 8px;">
+                    <span style="background-color: ${badgeBg}; color: ${badgeColor}; padding: 5px 10px; border-radius: 6px; font-size: 7pt; font-weight: bold; letter-spacing: 0.5px;">${l.persetujuan}</span>
+                </td>
+            </tr>`;
+    }).join('');
+
+    const pdfContent = document.createElement('div');
+    // Lebar absolut untuk mencegah tabel hancur/berantakan
+    pdfContent.style.width = "800px"; 
+    pdfContent.style.padding = "40px";
+    pdfContent.style.backgroundColor = "#ffffff";
+    pdfContent.style.fontFamily = "Helvetica, Arial, sans-serif";
+
+    pdfContent.innerHTML = `
+        <table style="width: 100%; border-bottom: 3px solid #1e3a8a; padding-bottom: 10px; margin-bottom: 25px;">
+            <tr>
+                <td style="vertical-align: bottom;">
+                    <h1 style="margin: 0; color: #1e3a8a; font-size: 26pt; font-weight: 900; letter-spacing: -0.5px;">C.E.P.U</h1>
+                    <p style="margin: 4px 0 0 0; font-size: 9pt; font-weight: bold; color: #64748b; letter-spacing: 1.5px;">AUDIT LOG PERJALANAN DINAS</p>
+                </td>
+                <td style="text-align: right; vertical-align: bottom;">
+                    <p style="margin: 0; font-size: 8pt; color: #94a3b8; text-transform: uppercase; font-weight: bold;">Periode Laporan</p>
+                    <p style="margin: 2px 0 0 0; font-size: 12pt; font-weight: 900; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px;">${periodeStr}</p>
+                </td>
+            </tr>
+        </table>
+
+        <table style="width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 25px; font-size: 9pt;">
+            <tr>
+                <td style="width: 15%; color: #64748b; padding: 6px 8px;">Nama Karyawan</td>
+                <td style="width: 35%; padding: 6px 8px; font-weight: bold; color: #0f172a; font-size: 10pt;">: ${user.nama}</td>
+                <td style="width: 15%; color: #64748b; padding: 6px 8px;">NRPP / Jabatan</td>
+                <td style="width: 35%; padding: 6px 8px; color: #334155; font-weight: bold;">: ${user.nrpp} / ${user.jabatan}</td>
+            </tr>
+            <tr>
+                <td style="color: #64748b; padding: 6px 8px;">Unit Kerja</td>
+                <td style="padding: 6px 8px; color: #334155;">: ${user.departemen} - ${user.lokasi}</td>
+                <td style="color: #64748b; padding: 6px 8px;">Waktu Cetak</td>
+                <td style="padding: 6px 8px; color: #334155;">: ${tglCetak}</td>
+            </tr>
+        </table>
+
+        <table style="width: 100%; margin-bottom: 30px; border-spacing: 12px 0; border-collapse: separate; margin-left: -12px;">
+            <tr>
+                <td style="width: 33.33%; border: 1px solid #e2e8f0; border-top: 4px solid #3b82f6; border-radius: 10px; padding: 18px; text-align: center; background: #ffffff;">
+                    <p style="margin: 0; font-size: 7.5pt; color: #64748b; font-weight: bold; letter-spacing: 0.5px;">TOTAL TRIP BULANAN</p>
+                    <p style="margin: 8px 0 0 0; font-size: 20pt; font-weight: 900; color: #0f172a;">${logs.length}</p>
+                </td>
+                <td style="width: 33.33%; border: 1px solid #e2e8f0; border-top: 4px solid #3b82f6; border-radius: 10px; padding: 18px; text-align: center; background: #ffffff;">
+                    <p style="margin: 0; font-size: 7.5pt; color: #64748b; font-weight: bold; letter-spacing: 0.5px;">AKUMULASI DURASI</p>
+                    <p style="margin: 8px 0 0 0; font-size: 20pt; font-weight: 900; color: #0f172a;">${totalDurasi.toFixed(2)} <span style="font-size:10pt; color:#64748b; font-weight: 600;">Jam</span></p>
+                </td>
+                <td style="width: 33.33%; border: 1px solid #e2e8f0; border-top: 4px solid #10b981; border-radius: 10px; padding: 18px; text-align: center; background: #ffffff;">
+                    <p style="margin: 0; font-size: 7.5pt; color: #64748b; font-weight: bold; letter-spacing: 0.5px;">TOTAL ESTIMASI UPD</p>
+                    <p style="margin: 8px 0 0 0; font-size: 20pt; font-weight: 900; color: #059669;"><span style="font-size:12pt; color:#10b981">Rp</span> ${totalNominal.toLocaleString('id-ID')}</p>
+                </td>
+            </tr>
+        </table>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 8.5pt;">
+            <thead>
+                <tr>
+                    <th style="background: #f1f5f9; color: #475569; padding: 14px 8px; border-bottom: 2px solid #cbd5e1; text-align: center; width: 6%; font-weight: bold; letter-spacing: 0.5px;">NO</th>
+                    <th style="background: #f1f5f9; color: #475569; padding: 14px 8px; border-bottom: 2px solid #cbd5e1; text-align: left; width: 16%; font-weight: bold; letter-spacing: 0.5px;">WAKTU KELUAR</th>
+                    <th style="background: #f1f5f9; color: #475569; padding: 14px 8px; border-bottom: 2px solid #cbd5e1; text-align: left; width: 35%; font-weight: bold; letter-spacing: 0.5px;">CUSTOMER & DESTINASI</th>
+                    <th style="background: #f1f5f9; color: #475569; padding: 14px 8px; border-bottom: 2px solid #cbd5e1; text-align: center; width: 10%; font-weight: bold; letter-spacing: 0.5px;">DURASI</th>
+                    <th style="background: #f1f5f9; color: #475569; padding: 14px 8px; border-bottom: 2px solid #cbd5e1; text-align: right; width: 17%; font-weight: bold; letter-spacing: 0.5px;">NOMINAL</th>
+                    <th style="background: #f1f5f9; color: #475569; padding: 14px 8px; border-bottom: 2px solid #cbd5e1; text-align: center; width: 16%; font-weight: bold; letter-spacing: 0.5px;">APPROVAL</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rowsHtml}
+            </tbody>
+        </table>
+
+        <div style="margin-top: 50px; text-align: right; page-break-inside: avoid;">
+            <div style="display: inline-block; text-align: center; width: 250px;">
+                <p style="margin: 0 0 60px 0; color: #64748b; font-size: 9pt;">Dicetak Oleh Sistem,</p>
+                <p style="margin: 0; font-weight: 900; color: #0f172a; font-size: 10pt; text-decoration: underline;">HRD COMMAND CENTER</p>
+                <p style="margin: 4px 0 0 0; font-size: 7.5pt; color: #94a3b8; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Security Verified Log</p>
+            </div>
+        </div>
+    `;
+
+    const opt = {
+        margin:       [0.4, 0.4, 0.4, 0.4],
+        filename:     `Audit_Log_${user.nrpp}_${periodeStr.replace(' ', '_')}.pdf`,
+        image:        { type: 'jpeg', quality: 1 },
+        html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
+    };
+
+    html2pdf().set(opt).from(pdfContent).save().then(() => {
+        sysShowToast("Audit Log Premium berhasil diunduh!", "success");
+    }).catch(err => {
+        console.error(err);
+        sysShowToast("Gagal mengunduh PDF.", "error");
+    });
+}
+
+</script>

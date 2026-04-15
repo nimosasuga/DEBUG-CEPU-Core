@@ -1793,55 +1793,90 @@ function executeExcelExport(sheetName, dataMatrix, btnElement, originalHtml) {
     }
 }
 
-// ==============================================================================
-// MODUL USER: UI LOG PERJALANAN PRIBADI & ESTIMASI UPD
-// ==============================================================================
-
 function renderWorkspace_LogPribadi() {
-    DOM_Engine.clear('nav-workspace');
-    const container = document.getElementById('nav-workspace');
+    // 1. TANGKAP NILAI FILTER SEBELUM LAYAR DIHANCURKAN
+    const elBulan = document.getElementById('filter-bulan');
+    const elTahun = document.getElementById('filter-tahun');
     
-    container.appendChild(DOM_Engine.create('div', 'flex flex-col items-center justify-center py-20 fade-in', {}, [
-        DOM_Engine.create('i', 'fa-solid fa-file-invoice fa-spin text-4xl text-blue-500 mb-4'),
-        DOM_Engine.create('p', 'text-slate-500 font-medium tracking-wide', {}, ['Menarik riwayat Surat Tugas dan kalkulasi UPD...'])
-    ]));
+    let now = new Date();
+    let valBulan = elBulan ? elBulan.value : String(now.getMonth() + 1).padStart(2, '0');
+    let valTahun = elTahun ? elTahun.value : String(now.getFullYear());
 
-    google.script.run.withSuccessHandler((res) => {
-        if (res.status === 'success') buildUI_LogPribadi(res.data);
-        else { sysShowToast(res.message, 'error'); renderWorkspace_Dinas(); }
-    }).api_getLogPribadi(SysState.user);
+    // 2. FORMAT JADI STRING PERIODE (Contoh: "04-2026")
+    let targetPeriode = String(valBulan).padStart(2, '0') + "-" + valTahun;
+
+    // 3. BARU TAMPILKAN LOADING SPINNER
+    const container = document.getElementById('nav-workspace');
+    container.innerHTML = '<div class="flex flex-col items-center justify-center h-64"><i class="fa-solid fa-spinner fa-spin text-4xl text-blue-500 mb-4"></i><p class="font-bold text-slate-600">Sinkronisasi Riwayat...</p></div>';
+
+    google.script.run
+        .withSuccessHandler((res) => {
+            if(res.status === "success") {
+                buildUI_LogPribadi(res.data, targetPeriode); // Kirim targetPeriode
+            } else {
+                container.innerHTML = `<div class="p-10 text-center text-red-500"><b>Error:</b> ${res.message}</div>`;
+            }
+        })
+        .withFailureHandler((err) => {
+            container.innerHTML = `<div class="p-10 text-center text-red-500"><b>Koneksi Gagal:</b> ${err.message}</div>`;
+        })
+        .api_getLogPribadi(SysState.user, targetPeriode); // Kirim targetPeriode ke BE
 }
 
-// --- CARI DAN GANTI FUNGSI INI DI JS_Dashboard.html ---
-
-function buildUI_LogPribadi(groupedData) {
+function buildUI_LogPribadi(groupedData, targetPeriode) {
     DOM_Engine.clear('nav-workspace');
     const container = document.getElementById('nav-workspace');
 
-    const headerSec = DOM_Engine.create('div', 'mb-8 fade-in flex items-end justify-between', {}, [
-        DOM_Engine.create('div', '', {}, [
-            DOM_Engine.create('h2', 'text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [
-                DOM_Engine.create('div', 'p-2 bg-blue-100 rounded-xl', {}, [DOM_Engine.create('i', 'fa-solid fa-map-location-dot text-blue-600')]),
-                'Riwayat Surat Tugas'
-            ]),
-            DOM_Engine.create('p', 'text-slate-500 text-sm mt-2 ml-14', {}, ['Daftar aktivitas perjalanan dinas Anda dan estimasi akumulasi UPD.'])
-        ]),
-        DOM_Engine.create('button', 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2 transition-all', { onClick: renderWorkspace_LogPribadi }, [DOM_Engine.create('i', 'fa-solid fa-rotate-right'), 'Refresh'])
-    ]);
+    // Pecah targetPeriode (misal "04-2026") kembali jadi angka untuk UI
+    let targetBulan = parseInt(targetPeriode.split('-')[0], 10);
+    let targetTahun = parseInt(targetPeriode.split('-')[1], 10);
 
-// [URUTKAN]: Memastikan "BELUM ADA NO ST" selalu muncul paling atas
-    const stKeys = Object.keys(groupedData).sort((a, b) => {
-        if (a === "BELUM ADA NO ST") return -1; // 'a' naik ke atas
-        if (b === "BELUM ADA NO ST") return 1;  // 'b' naik ke atas
-        return b.localeCompare(a); // Sisanya diurutkan descending
+    const bulanNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+
+    // PENULISAN ATRIBUT SELECTED YANG BENAR UNTUK DOM ENGINE
+    const optBulan = bulanNames.map((nama, idx) => {
+        let attrs = { value: idx + 1 };
+        if ((idx + 1) === targetBulan) attrs.selected = 'true';
+        return DOM_Engine.create('option', '', attrs, [nama]);
     });
 
-    // Validasi jika data kosong (Tetap menggunakan UI Glassmorphism Anda)
+    const optTahun = [2025, 2026, 2027].map(y => {
+        let attrs = { value: y };
+        if (y === targetTahun) attrs.selected = 'true';
+        return DOM_Engine.create('option', '', attrs, [y]);
+    });
+
+    const filterCtrl = DOM_Engine.create('div', 'flex items-center gap-2 mt-4 sm:mt-0', {}, [
+        DOM_Engine.create('select', 'bg-white border border-slate-200 text-slate-700 text-sm rounded-xl px-3 py-2 font-bold', { id: 'filter-bulan', onChange: renderWorkspace_LogPribadi }, optBulan),
+        DOM_Engine.create('select', 'bg-white border border-slate-200 text-slate-700 text-sm rounded-xl px-3 py-2 font-bold', { id: 'filter-tahun', onChange: renderWorkspace_LogPribadi }, optTahun),
+        DOM_Engine.create('button', 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 w-9 h-9 rounded-xl shadow-sm flex items-center justify-center', { onClick: renderWorkspace_LogPribadi }, [DOM_Engine.create('i', 'fa-solid fa-rotate-right')])
+    ]);
+
+    const headerSec = DOM_Engine.create('div', 'mb-8 fade-in flex flex-col sm:flex-row items-start sm:items-end justify-between bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100', {}, [
+        DOM_Engine.create('div', '', {}, [
+            DOM_Engine.create('h2', 'text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3', {}, [
+                DOM_Engine.create('div', 'p-2.5 bg-blue-100 rounded-xl', {}, [DOM_Engine.create('i', 'fa-solid fa-calendar-days text-blue-600 text-lg')]),
+                'Riwayat Perjalanan (UPD)'
+            ]),
+            DOM_Engine.create('p', 'text-slate-500 text-xs mt-2 ml-14 font-medium', {}, ['Filter aktivitas dinas berdasarkan bulan.'])
+        ]),
+        filterCtrl
+    ]);
+
+    const stKeys = Object.keys(groupedData).sort((a, b) => {
+        if (a === "BELUM ADA NO ST") return -1;
+        if (b === "BELUM ADA NO ST") return 1;
+        return b.localeCompare(a);
+    });
+
     if (stKeys.length === 0) {
-        container.appendChild(DOM_Engine.create('div', 'bg-slate-50 min-h-screen p-2', {}, [headerSec, DOM_Engine.create('div', 'glass text-center py-16 rounded-[2rem] border border-white shadow-premium', {}, [
-            DOM_Engine.create('i', 'fa-solid fa-folder-open text-5xl text-slate-300 mb-4'),
-            DOM_Engine.create('h3', 'text-lg font-bold text-slate-500', {}, ['Belum ada riwayat perjalanan dinas.'])
-        ])]));
+        container.appendChild(DOM_Engine.create('div', 'bg-slate-50 min-h-screen p-2', {}, [
+            headerSec,
+            DOM_Engine.create('div', 'glass text-center py-16 rounded-[2rem] border border-white shadow-premium mt-4', {}, [
+                DOM_Engine.create('i', 'fa-solid fa-folder-open text-5xl text-slate-300 mb-4'),
+                DOM_Engine.create('h3', 'text-lg font-bold text-slate-700', {}, [`Tidak ada data di ${bulanNames[targetBulan-1]} ${targetTahun}`])
+            ])
+        ]));
         return;
     }
 

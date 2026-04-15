@@ -2,6 +2,7 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>C.E.P.U Enterprise</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -11,7 +12,17 @@
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
     
-    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    /* ========================================================= */
+    /* [ABSOLUTE LOCK]: MENCEGAH HORIZONTAL SCROLL DI SEMUA HP   */
+    /* ========================================================= */
+    html, body { 
+        font-family: 'Plus Jakarta Sans', sans-serif; 
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+        position: relative;
+        overscroll-behavior-x: none !important; /* Mematikan efek mantul/karet saat digeser ke samping */
+        touch-action: pan-y !important; /* Touchscreen hanya diizinkan untuk scroll atas-bawah */
+    }
     
     /* Aurora Background Effect */
     .bg-aurora {
@@ -67,7 +78,7 @@
     .animate-float { animation: float 6s ease-in-out infinite; }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-800 font-inter antialiased overflow-hidden">
+<body class="bg-slate-50 text-slate-800 antialiased overflow-x-hidden w-full relative">
 
     <div id="sys-root" class="h-screen w-full flex">
         <div class="w-full h-full flex flex-col items-center justify-center bg-slate-50">

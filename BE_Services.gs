@@ -96,15 +96,16 @@ function api_getInitFormData(user) {
   }
 }
 
-// --- CARI DAN GANTI FUNGSI INI DI BE_Services.gs ---
-
+// ==========================================================
+// MODUL LOGIN & SECURITY: STRICT DEVICE BINDING (ANTI-TITIP ABSEN)
+// ==========================================================
 function api_verifyLogin(nrpp, password, deviceId) {
   try {
     const dbMaster = SpreadsheetApp.openById(DB_MASTER_ID);
     const sheetLogin = dbMaster.getSheetByName("Master_Login");
     const dataLogin = sheetLogin.getDataRange().getValues();
     const headers = dataLogin[0].map(h => h.toString().toUpperCase().trim());
-
+    
     const idx = {
       nrpp: headers.indexOf("NRPP"),
       pass: headers.indexOf("PASSWORD"),
@@ -112,7 +113,7 @@ function api_verifyLogin(nrpp, password, deviceId) {
       name: headers.indexOf("NAMA"),
       lastLogin: headers.indexOf("LAST_LOGIN")
     };
-
+    
     if (idx.nrpp === -1 || idx.pass === -1) throw new Error("Struktur kolom Master_Login rusak!");
 
     let userFound = false;
@@ -120,24 +121,34 @@ function api_verifyLogin(nrpp, password, deviceId) {
 
     for (let i = 1; i < dataLogin.length; i++) {
       let row = dataLogin[i];
+      
+      // Pengecekan NRPP dan Password
       if (row[idx.nrpp].toString() === nrpp.toString() && row[idx.pass].toString() === password.toString()) {
         
-        let registeredDeviceId = row[idx.devId] ? row[idx.devId].toString() : "";
+        let registeredDeviceId = row[idx.devId] ? row[idx.devId].toString().trim() : "";
         let rowIndex = i + 1;
 
-        if (registeredDeviceId === "") {
-          sheetLogin.getRange(rowIndex, idx.devId + 1).setValue(deviceId);
-        } else if (registeredDeviceId !== deviceId.toString()) {
-          return { status: "error", message: "⛔ SECURITY LOCK: NRPP ini terikat pada perangkat lain!" };
+        // ==========================================================
+        // [SECURITY LOCK]: PENCEGAHAN TITIP ABSEN MUTLAK
+        // ==========================================================
+        if (registeredDeviceId !== "" && registeredDeviceId !== deviceId.toString().trim()) {
+            // JIKA ID DATABASE ADA ISINYA, DAN TIDAK SAMA DENGAN HP YANG SEDANG DIPAKAI: BLOKIR!
+            return { 
+                status: "error", 
+                message: "⛔ SECURITY LOCK: Akun Anda sudah terikat di perangkat lain. Dilarang titip absen! Hubungi Admin jika Anda mengganti HP." 
+            };
+        } else if (registeredDeviceId === "") {
+            // JIKA ID KOSONG (HP Baru / Habis Direset Admin): DAFTARKAN HP INI!
+            sheetLogin.getRange(rowIndex, idx.devId + 1).setValue(deviceId);
         }
+        // ==========================================================
 
         userFound = true;
         sheetLogin.getRange(rowIndex, idx.lastLogin + 1).setValue(new Date());
-
+        
         const sheetKaryawan = dbMaster.getSheetByName("Master_Karyawan");
         const dataKar = sheetKaryawan.getDataRange().getValues();
         const headKar = dataKar[0].map(h => h.toString().toUpperCase().trim());
-        
         const iK = {
           nrpp: headKar.indexOf("NRPP"),
           jabatan: headKar.indexOf("JABATAN"),
@@ -146,7 +157,6 @@ function api_verifyLogin(nrpp, password, deviceId) {
           dept: headKar.indexOf("DEPARTEMEN"),
           loc: headKar.indexOf("LOKASI")
         };
-
         let details = dataKar.find(r => r[iK.nrpp].toString() === nrpp.toString());
         
         userData = {
@@ -158,8 +168,8 @@ function api_verifyLogin(nrpp, password, deviceId) {
           departemen: details ? details[iK.dept] : "-",
           lokasi: details ? details[iK.loc] : "OFFICE"
         };
-
-        // [KILLER FEATURE]: Pengecekan Hak Akses UPD secara otomatis
+        
+        // Pengecekan Hak Akses UPD
         const sheetUPD = dbMaster.getSheetByName("Master_UPD");
         if (sheetUPD) {
             const dataUPD = sheetUPD.getDataRange().getValues();
@@ -778,7 +788,7 @@ function api_adminGetRekapData(sheetName) {
 // MODUL USER: RIWAYAT PERJALANAN DINAS & UPD (GROUPING ST)
 // ==========================================================
 
-function api_getLogPribadi(user) {
+function api_getLogPribadi(user, filterBulan, filterTahun) {
   try {
     const dbUpd = SpreadsheetApp.openById(DB_UPD_ID);
     let targetSheetName = "Log_" + user.lokasi.trim();
@@ -788,7 +798,6 @@ function api_getLogPribadi(user) {
     const data = sheet.getDataRange().getValues();
     if(data.length <= 1) return { status: "success", data: {} };
 
-    // [MESIN BARU]: Tarik Master UPD untuk breakdown otomatis di PDF
     const dbMaster = SpreadsheetApp.openById(DB_MASTER_ID);
     const masterUPD = dbMaster.getSheetByName("Master_UPD").getDataRange().getValues();
     
@@ -796,7 +805,6 @@ function api_getLogPribadi(user) {
     let keyGolongan = user.golongan ? user.golongan.toString().trim().toUpperCase() : "";
     let keyStatusKaryawan = user.statusKaryawan ? user.statusKaryawan.toString().trim().toUpperCase() : "";
     
-    // Deklarasi variabel penampung nominal UPD
     let upd_ge8 = 0, upd_lt8 = 0, uangMakan = 0, mknSiangLibur = 0, lainKerja = 0, lainLibur = 0;
 
     for (let i = 1; i < masterUPD.length; i++) {
@@ -804,7 +812,6 @@ function api_getLogPribadi(user) {
       let dbGol = masterUPD[i][1] ? masterUPD[i][1].toString().trim().toUpperCase() : "";
       let dbStatusJabatan = masterUPD[i][2] ? masterUPD[i][2].toString().trim().toUpperCase() : ""; 
 
-      // [STRICT MATCHER LOGIC]: Anti Overlap "NON" vs "PROJECT"
       let isStatusMatch = false;
       if (dbStatusJabatan === "") {
           isStatusMatch = true; 
@@ -839,21 +846,50 @@ function api_getLogPribadi(user) {
     const iKlaim = headers.indexOf("STATUS_KLAIM") !== -1 ? headers.indexOf("STATUS_KLAIM") : headers.indexOf("STATUS KLAIM");
 
     let groupedData = {};
+
+    // [FIX BUG 2: DEFAULT PARAMETER AMAN] - Memastikan parameter adalah angka valid
+    const now = new Date();
+    let pBulan = parseInt(filterBulan, 10);
+    let pTahun = parseInt(filterTahun, 10);
+
+    let fixBulan = (isNaN(pBulan) || pBulan === 0) ? (now.getMonth() + 1) : pBulan;
+    let fixTahun = (isNaN(pTahun) || pTahun === 0) ? now.getFullYear() : pTahun;
+
+    const tBulanStr = String(fixBulan).padStart(2, '0');
+    const tTahunStr = String(fixTahun);
     
-    // --- BLOK KODE STABIL DARI USER (TIDAK ADA PERUBAHAN SAMA SEKALI) ---
     for(let i = data.length - 1; i >= 1; i--) {
        if(data[i][1].toString() === user.nrpp.toString()) {
-           let st = (iNoST !== -1 && data[i][iNoST]) ? data[i][iNoST].toString().trim() : "TANPA ST";
-           if(!st) st = "TANPA ST";
-           
-           if(!groupedData[st]) groupedData[st] = [];
            
            let wKeluar = (iWaktuKeluar !== -1) ? data[i][iWaktuKeluar] : "";
-           let wKeluarStr = (wKeluar instanceof Date) ? Utilities.formatDate(wKeluar, "Asia/Jakarta", "dd/MM/yyyy HH:mm") : wKeluar.toString();
-           let wMasuk = (iWaktuMasuk !== -1 && data[i][iWaktuMasuk]) ? data[i][iWaktuMasuk] : "";
-           let wMasukStr = (wMasuk instanceof Date) ? Utilities.formatDate(wMasuk, "Asia/Jakarta", "dd/MM/yyyy HH:mm") : (wMasuk ? wMasuk.toString() : "-");
+           let wKeluarStr = (wKeluar instanceof Date) ? Utilities.formatDate(wKeluar, "Asia/Jakarta", "dd/MM/yyyy HH:mm") : wKeluar.toString().trim();
            
-           // [RULE 3, 4, 5, 6]: Kalkulasi Breakdown UPD per baris
+           let wMasuk = (iWaktuMasuk !== -1 && data[i][iWaktuMasuk]) ? data[i][iWaktuMasuk] : "";
+           let wMasukStr = (wMasuk instanceof Date) ? Utilities.formatDate(wMasuk, "Asia/Jakarta", "dd/MM/yyyy HH:mm") : (wMasuk ? wMasuk.toString().trim() : "");
+           
+           // [FIX BUG 1: TUTUP LUBANG DATA BOCOR]
+           let dateToCheck = wKeluarStr !== "" ? wKeluarStr : wMasukStr;
+           let isMatch = false;
+
+           if (dateToCheck !== "") {
+               isMatch = dateToCheck.includes(tTahunStr + "/" + tBulanStr) || 
+                         dateToCheck.includes(tBulanStr + "/" + tTahunStr) || 
+                         dateToCheck.includes(tTahunStr + "-" + tBulanStr) || 
+                         dateToCheck.includes(tBulanStr + "-" + tTahunStr);
+           } else {
+               // Jika tanggal kosong (sedang jalan tapi belum ke-record), TAMPILKAN HANYA di filter bulan berjalan ini.
+               if (fixBulan === (now.getMonth() + 1) && fixTahun === now.getFullYear()) {
+                   isMatch = true;
+               }
+           }
+
+           if (!isMatch) continue; // KUNCI MATI: Buang data yang tidak cocok!
+           // ------------------------------------------------------------------
+
+           let st = (iNoST !== -1 && data[i][iNoST]) ? data[i][iNoST].toString().trim() : "TANPA ST";
+           if(!st) st = "TANPA ST";
+           if(!groupedData[st]) groupedData[st] = [];
+           
            let durVal = (iDurasi !== -1 && data[i][iDurasi]) ? parseFloat(data[i][iDurasi]) : 0;
            let dbNominal = (iNominal !== -1 && data[i][iNominal]) ? parseFloat(data[i][iNominal]) : 0;
            
@@ -869,13 +905,12 @@ function api_getLogPribadi(user) {
            let calc_lain = isWeekend ? lainLibur : lainKerja;
            let calc_total = calc_upd + calc_makanTotal + calc_makanSiang + calc_lain;
 
-           // Bypass angka jika durasi masih 0 (belum pulang)
            if(durVal === 0) {
                calc_upd = 0; calc_makanTotal = 0; calc_makanSiang = 0; calc_lain = 0; calc_total = 0;
            }
 
-            groupedData[st].push({
-               idTransaksi: (data[i][0]) ? data[i][0].toString() : "", // <--- TAMBAHKAN BARIS INI
+           groupedData[st].push({
+               idTransaksi: (data[i][0]) ? data[i][0].toString() : "", 
                customer: (iCust !== -1 && data[i][iCust]) ? data[i][iCust].toString() : "-",
                lokasi: (iLokasi !== -1 && data[i][iLokasi]) ? data[i][iLokasi].toString() : "-",
                waktuKeluar: wKeluarStr,
@@ -884,19 +919,13 @@ function api_getLogPribadi(user) {
                nominal: dbNominal,
                status: (iStatus !== -1 && data[i][iStatus]) ? data[i][iStatus].toString() : "SEDANG JALAN",
                klaim: (iKlaim !== -1 && data[i][iKlaim]) ? data[i][iKlaim].toString() : "BELUM KLAIM",
-               persetujuan: data[i][20] ? data[i][20].toString().toUpperCase() : "PENDING", // <--- BACA DARI KOLOM U (Status_Approve)
+               persetujuan: data[i][20] ? data[i][20].toString().toUpperCase() : "PENDING", 
                breakdown: {
-                   upd: calc_upd,
-                   makanTotal: calc_makanTotal,
-                   makanSiang: calc_makanSiang,
-                   lain: calc_lain,
-                   total: calc_total
+                   upd: calc_upd, makanTotal: calc_makanTotal, makanSiang: calc_makanSiang, lain: calc_lain, total: calc_total
                }
            });
        }
     }
-    // --- END BLOK STABIL ---
-
     return { status: "success", data: groupedData };
   } catch(e) {
     return { status: "error", message: e.toString() };

@@ -77,27 +77,38 @@ function sysGetDeviceId() {
     return deviceId;
 }
 
-// ==============================================================================
-// [AUTO-FORCE LOGOUT ENGINE] - Ubah angka versi ini setiap kali ada update besar!
-// ==============================================================================
-const APP_VERSION = "v1.2.1"; // <-- GANTI ANGKA INI JIKA ADA UPDATE BERIKUTNYA
-
+/**
+ * ATOMIC AUTO-UPDATE (v1.2.14)
+ * Mengecek versi dan langsung melakukan auto-refresh jika ada pembaruan.
+ */
 function sysCheckAndForceUpdate() {
-    const localVersion = localStorage.getItem('cepu_app_version');
-    
-    if (localVersion !== APP_VERSION) {
-        // Versi tidak cocok atau baru pertama kali buka setelah update.
-        // Bersihkan semua state yang nyangkut di memori HP.
-        localStorage.removeItem('cepu_session');
-        localStorage.removeItem('cepu_dinas_state');
+    google.script.run.withSuccessHandler(function(config) {
+        const localVersion = localStorage.getItem("cepu_app_version");
         
-        // Simpan versi terbaru agar tidak logout terus-menerus
-        localStorage.setItem('cepu_app_version', APP_VERSION);
-        
-        console.warn("Memaksa pembaruan sistem. Sesi telah dibersihkan.");
-        return true; // Status: Terjadi Force Logout
-    }
-    return false; // Status: Aman, versi sama
+        // Jika versi tidak cocok, langsung eksekusi pembaruan
+        if (localVersion !== config.latestVersion) {
+            // 1. Backup data penting kilat
+            const id = localStorage.getItem("cepu_device_id");
+            const sess = localStorage.getItem("cepu_session");
+            const din = localStorage.getItem("cepu_dinas_state");
+            
+            // 2. Sapu bersih & siapkan versi baru
+            localStorage.clear();
+            if (id) localStorage.setItem("cepu_device_id", id);
+            if (sess) localStorage.setItem("cepu_session", sess);
+            if (din) localStorage.setItem("cepu_dinas_state", din);
+            localStorage.setItem("cepu_app_version", config.latestVersion);
+            
+            // 3. AUTO REFRESH INSTAN
+            // window.top.location.replace lebih cepat daripada .href karena tidak mencatat histori
+            const refreshUrl = config.scriptUrl + "?v=" + Date.now();
+            if (window.top) {
+                window.top.location.replace(refreshUrl);
+            } else {
+                window.location.replace(refreshUrl);
+            }
+        }
+    }).api_getSystemConfig();
 }
 
 </script>

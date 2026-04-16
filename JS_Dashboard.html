@@ -412,7 +412,17 @@ document.addEventListener("DOMContentLoaded", () => {
             SysState.dinas.isActive = true; 
             SysState.dinas.data = JSON.parse(dS); 
         }
-        renderView_MainLayout(); 
+        renderView_MainLayout();
+        const rootContainer = document.getElementById('sys-root');
+    const versionBadge = DOM_Engine.create('div', 'fixed bottom-4 left-4 z-[100] bg-slate-900/80 backdrop-blur-md text-slate-300 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg border border-white/10 flex items-center gap-2 pointer-events-none animate-fade-in', {}, [
+        DOM_Engine.create('i', 'fa-solid fa-code-compare text-emerald-400'),
+        'C.E.P.U Enterprise ' + APP_VERSION
+    ]);
+    const existingBadge = document.getElementById('sys-version-badge');
+    if (existingBadge) existingBadge.remove();
+    versionBadge.id = 'sys-version-badge';
+
+    rootContainer.appendChild(versionBadge); 
     } else { 
         renderView_Login(); 
     }

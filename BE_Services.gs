@@ -1452,3 +1452,19 @@ function api_userUpdateST(trxIds, newST, user) {
     return { status: "error", message: "Gagal: " + e.message };
   }
 }
+
+// GANTI FUNGSI INI DI BE_Services.gs
+function api_getScriptUrl() {
+  return ScriptApp.getService().getUrl();
+}
+
+/**
+ * Master Config: Sumber kebenaran versi aplikasi.
+ * Tambahkan/Update fungsi ini di BE_Services.gs
+ */
+function api_getSystemConfig() {
+  return {
+    latestVersion: "v1.2.16", // <-- UBAH KE v1.2.12 SEKARANG
+    scriptUrl: ScriptApp.getService().getUrl()
+  };
+}

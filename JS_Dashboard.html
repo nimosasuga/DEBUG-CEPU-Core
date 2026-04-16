@@ -5,8 +5,6 @@
 // UPDATE: Dynamic Status Absensi Field
 // ==============================================================================
 
-// --- CARI DAN GANTI FUNGSI renderView_MainLayout & toggleSidebar DI JS_Dashboard.html ---
-
   function renderView_MainLayout() {
     DOM_Engine.clear('sys-root');
     const root = document.getElementById('sys-root');
@@ -82,13 +80,20 @@
 
     const btnLogout = DOM_Engine.create('button', 'mx-4 mb-6 flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold text-rose-500 bg-rose-50 hover:bg-rose-500 hover:text-white transition-colors shadow-sm', { onClick: handleAction_Logout }, [DOM_Engine.create('i', 'fa-solid fa-power-off'), ' Keluar Sistem']);
 
-    const sidebar = DOM_Engine.create('nav', 'w-80 bg-white/80 backdrop-blur-2xl h-full flex flex-col fixed lg:static z-50 sidebar-transition -translate-x-full lg:translate-x-0 border-r border-slate-200 shadow-[4px_0_24px_rgba(0,0,0,0.02)]', { id: 'nav-sidebar' }, [
-        DOM_Engine.create('div', 'h-20 flex items-center gap-4 px-8 border-b border-slate-100', {}, [
-            DOM_Engine.create('div', 'w-10 h-10 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-xl flex items-center justify-center shadow-md', {}, [DOM_Engine.create('i', 'fa-solid fa-layer-group text-white text-lg')]),
-            DOM_Engine.create('span', 'font-extrabold text-2xl text-slate-800 tracking-tighter', {}, ['C.E.P.U'])
-        ]),
-        sidebarMenu, userCard, btnLogout
-    ]);
+   const sidebar = DOM_Engine.create('nav', 'w-80 bg-white/80 backdrop-blur-2xl h-full flex flex-col fixed lg:static z-50 sidebar-transition -translate-x-full lg:translate-x-0 border-r border-slate-200 shadow-[4px_0_24px_rgba(0,0,0,0.02)]', { id: 'nav-sidebar' }, [
+          DOM_Engine.create('div', 'h-20 flex items-center gap-4 px-8 border-b border-slate-100 shrink-0', {}, [
+              // Ikon Logo
+              DOM_Engine.create('div', 'w-10 h-10 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-xl flex items-center justify-center shadow-md shrink-0', {}, [
+                  DOM_Engine.create('i', 'fa-solid fa-layer-group text-white text-lg')
+              ]),
+              // Teks Judul dan Versi (Stack Vertikal) - PERBAIKAN ANTI CRASH
+              DOM_Engine.create('div', 'flex flex-col justify-center', {}, [
+                DOM_Engine.create('span', 'font-extrabold text-2xl text-slate-800 tracking-tighter leading-none', {}, ['C.E.P.U']),
+                DOM_Engine.create('span', 'text-[10px] font-bold text-emerald-500 tracking-widest mt-1', {}, ['ENTERPRISE ' + (localStorage.getItem('cepu_app_version') || 'TERBARU')])
+            ])
+          ]),
+          sidebarMenu, userCard, btnLogout
+      ]);
 
     const header = DOM_Engine.create('header', 'glass h-20 sticky top-0 z-30 flex items-center justify-between px-6 lg:px-10 border-b border-slate-200/50', {}, [
         DOM_Engine.create('div', 'flex items-center gap-4', {}, [
@@ -398,11 +403,7 @@ function action_submitPulang() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    // 1. INTERCEPTOR: Cek Versi Aplikasi Dulu! 
-    // Jika versi beda, fungsi ini otomatis menghapus localStorage.
     sysCheckAndForceUpdate(); 
-
-    // 2. BACA SESI (Akan kosong jika barusan kena Force Logout)
     const uS = localStorage.getItem('cepu_session');
     const dS = localStorage.getItem('cepu_dinas_state');
     
@@ -413,16 +414,6 @@ document.addEventListener("DOMContentLoaded", () => {
             SysState.dinas.data = JSON.parse(dS); 
         }
         renderView_MainLayout();
-        const rootContainer = document.getElementById('sys-root');
-    const versionBadge = DOM_Engine.create('div', 'fixed bottom-4 left-4 z-[100] bg-slate-900/80 backdrop-blur-md text-slate-300 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg border border-white/10 flex items-center gap-2 pointer-events-none animate-fade-in', {}, [
-        DOM_Engine.create('i', 'fa-solid fa-code-compare text-emerald-400'),
-        'C.E.P.U Enterprise ' + APP_VERSION
-    ]);
-    const existingBadge = document.getElementById('sys-version-badge');
-    if (existingBadge) existingBadge.remove();
-    versionBadge.id = 'sys-version-badge';
-
-    rootContainer.appendChild(versionBadge); 
     } else { 
         renderView_Login(); 
     }

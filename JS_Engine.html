@@ -76,4 +76,28 @@ function sysGetDeviceId() {
     }
     return deviceId;
 }
+
+// ==============================================================================
+// [AUTO-FORCE LOGOUT ENGINE] - Ubah angka versi ini setiap kali ada update besar!
+// ==============================================================================
+const APP_VERSION = "v1.2.0"; // <-- GANTI ANGKA INI JIKA ADA UPDATE BERIKUTNYA
+
+function sysCheckAndForceUpdate() {
+    const localVersion = localStorage.getItem('cepu_app_version');
+    
+    if (localVersion !== APP_VERSION) {
+        // Versi tidak cocok atau baru pertama kali buka setelah update.
+        // Bersihkan semua state yang nyangkut di memori HP.
+        localStorage.removeItem('cepu_session');
+        localStorage.removeItem('cepu_dinas_state');
+        
+        // Simpan versi terbaru agar tidak logout terus-menerus
+        localStorage.setItem('cepu_app_version', APP_VERSION);
+        
+        console.warn("Memaksa pembaruan sistem. Sesi telah dibersihkan.");
+        return true; // Status: Terjadi Force Logout
+    }
+    return false; // Status: Aman, versi sama
+}
+
 </script>

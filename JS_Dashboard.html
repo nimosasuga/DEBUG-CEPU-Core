@@ -398,12 +398,24 @@ function action_submitPulang() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    const uS = localStorage.getItem('cepu_session'), dS = localStorage.getItem('cepu_dinas_state');
+    // 1. INTERCEPTOR: Cek Versi Aplikasi Dulu! 
+    // Jika versi beda, fungsi ini otomatis menghapus localStorage.
+    sysCheckAndForceUpdate(); 
+
+    // 2. BACA SESI (Akan kosong jika barusan kena Force Logout)
+    const uS = localStorage.getItem('cepu_session');
+    const dS = localStorage.getItem('cepu_dinas_state');
+    
     if (uS) { 
         SysState.user = JSON.parse(uS); 
-        if (dS) { SysState.dinas.isActive = true; SysState.dinas.data = JSON.parse(dS); }
+        if (dS) { 
+            SysState.dinas.isActive = true; 
+            SysState.dinas.data = JSON.parse(dS); 
+        }
         renderView_MainLayout(); 
-    } else { renderView_Login(); }
+    } else { 
+        renderView_Login(); 
+    }
 });
 
 // 1. FUNGSI UNTUK FORM KEBERANGKATAN

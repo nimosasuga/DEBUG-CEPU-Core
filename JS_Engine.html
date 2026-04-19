@@ -78,35 +78,58 @@ function sysGetDeviceId() {
 }
 
 /**
- * ATOMIC AUTO-UPDATE (v1.2.14)
- * Mengecek versi dan langsung melakukan auto-refresh jika ada pembaruan.
+ * ATOMIC AUTO-UPDATE & KILL SWITCH ENGINE (v1.2.17)
  */
 function sysCheckAndForceUpdate() {
     google.script.run.withSuccessHandler(function(config) {
         const localVersion = localStorage.getItem("cepu_app_version");
+        const localSecTick = parseInt(localStorage.getItem("cepu_sec_tick") || "0", 10);
         
-        // Jika versi tidak cocok, langsung eksekusi pembaruan
+        // ==========================================================
+        // 1. CEK KILL SWITCH: PROTOKOL FORCE LOGOUT MASSAL
+        // ==========================================================
+        if (localSecTick < config.securityTick) {
+            console.warn("Global Force Logout Terdeteksi!");
+            
+            // Amankan HANYA Device ID agar HP tidak dianggap ganti (Tidak kena Titip Absen)
+            const savedDeviceId = localStorage.getItem("cepu_device_id");
+            
+            // SAPU BERSIH SEMUANYA TERMASUK SESI LOGIN KARYAWAN!
+            localStorage.clear();
+            sessionStorage.clear();
+            
+            if (savedDeviceId) localStorage.setItem("cepu_device_id", savedDeviceId);
+            localStorage.setItem("cepu_app_version", config.latestVersion);
+            localStorage.setItem("cepu_sec_tick", config.securityTick.toString());
+            
+            // Tendang instan ke layar Login
+            const refreshUrl = config.scriptUrl + "?v=" + Date.now() + "&force_logout=true";
+            if (window.top) window.top.location.replace(refreshUrl);
+            else window.location.replace(refreshUrl);
+            return; // Hentikan skrip di sini
+        }
+
+        // ==========================================================
+        // 2. CEK UPDATE BIASA: PROTOKOL PERTAHANKAN SESI 
+        // ==========================================================
         if (localVersion !== config.latestVersion) {
-            // 1. Backup data penting kilat
+            // Backup data penting termasuk Sesi Login
             const id = localStorage.getItem("cepu_device_id");
             const sess = localStorage.getItem("cepu_session");
             const din = localStorage.getItem("cepu_dinas_state");
             
-            // 2. Sapu bersih & siapkan versi baru
             localStorage.clear();
+            
             if (id) localStorage.setItem("cepu_device_id", id);
             if (sess) localStorage.setItem("cepu_session", sess);
             if (din) localStorage.setItem("cepu_dinas_state", din);
             localStorage.setItem("cepu_app_version", config.latestVersion);
+            localStorage.setItem("cepu_sec_tick", config.securityTick.toString());
             
-            // 3. AUTO REFRESH INSTAN
-            // window.top.location.replace lebih cepat daripada .href karena tidak mencatat histori
+            // Refresh Instan
             const refreshUrl = config.scriptUrl + "?v=" + Date.now();
-            if (window.top) {
-                window.top.location.replace(refreshUrl);
-            } else {
-                window.location.replace(refreshUrl);
-            }
+            if (window.top) window.top.location.replace(refreshUrl);
+            else window.location.replace(refreshUrl);
         }
     }).api_getSystemConfig();
 }

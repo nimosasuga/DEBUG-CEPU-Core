@@ -29,6 +29,7 @@ function include(filename) {
 
 function api_getInitFormData(user) {
   try {
+    user = _syncFreshUser(user);
     const dbMaster = SpreadsheetApp.openById(DB_MASTER_ID);
     const sheetStatus = dbMaster.getSheetByName("Master_Status_Absensi");
     const dataStatus = sheetStatus.getDataRange().getValues();
@@ -37,9 +38,13 @@ function api_getInitFormData(user) {
     let userLokasi = user.lokasi ? user.lokasi.toString().toUpperCase().trim() : "";
     let userJabatan = user.jabatan ? user.jabatan.toString().toUpperCase().trim() : "";
 
+    // [STRICT FILTER]: Menarik Status Kehadiran murni dari kolom Lokasi Master_Status_Absensi
     for (let i = 1; i < dataStatus.length; i++) {
       let filterArea = dataStatus[i][2] ? dataStatus[i][2].toString().toUpperCase() : "";
-      if (filterArea.includes(userLokasi) || filterArea.includes(userJabatan)) {
+      // Memecah teks koma (Contoh: "SATELITE, RFMC, SALES") menjadi array
+      let areaArray = filterArea.split(',').map(a => a.trim());
+      
+      if (areaArray.includes(userLokasi)) {
         options.push({ code: dataStatus[i][0], desc: dataStatus[i][1] });
       }
     }
@@ -193,10 +198,45 @@ function api_verifyLogin(nrpp, password, deviceId) {
   }
 }
 
-// --- CARI DAN GANTI FUNGSI INI DI BE_Services.gs ---
+// ==========================================================
+// [SECURITY FIX]: ZERO TRUST ARCHITECTURE ENGINE
+// Memaksa Backend mengambil data profil paling baru langsung dari Master DB,
+// mengabaikan cache lama yang mungkin nyangkut di HP Karyawan.
+// ==========================================================
+function _syncFreshUser(cachedUser) {
+    try {
+        const dbMaster = SpreadsheetApp.openById(DB_MASTER_ID);
+        const sheetKaryawan = dbMaster.getSheetByName("Master_Karyawan");
+        const dataKar = sheetKaryawan.getDataRange().getValues();
+        const headKar = dataKar[0].map(h => h.toString().toUpperCase().trim());
+        
+        let idxNrpp = headKar.indexOf("NRPP");
+        let idxNama = headKar.indexOf("NAMA_KARYAWAN");
+        if (idxNama === -1) idxNama = headKar.indexOf("NAMA");
+        let idxJab = headKar.indexOf("JABATAN");
+        let idxGol = headKar.indexOf("GOLONGAN");
+        let idxStatus = headKar.indexOf("STATUS_KARYAWAN");
+        let idxDept = headKar.indexOf("DEPARTEMEN");
+        let idxLoc = headKar.indexOf("LOKASI");
+
+        let details = dataKar.find(r => r[idxNrpp].toString() === cachedUser.nrpp.toString());
+        if (details) {
+            cachedUser.nama = details[idxNama] ? details[idxNama].toString().trim() : cachedUser.nama;
+            cachedUser.jabatan = details[idxJab] ? details[idxJab].toString().trim() : cachedUser.jabatan;
+            cachedUser.golongan = details[idxGol] ? details[idxGol].toString().trim() : cachedUser.golongan;
+            cachedUser.statusKaryawan = details[idxStatus] ? details[idxStatus].toString().trim() : cachedUser.statusKaryawan;
+            cachedUser.departemen = details[idxDept] ? details[idxDept].toString().trim() : cachedUser.departemen;
+            cachedUser.lokasi = details[idxLoc] ? details[idxLoc].toString().trim() : cachedUser.lokasi;
+        }
+        return cachedUser;
+    } catch(e) {
+        return cachedUser; // Fallback ke cache HP jika Master DB sedang sibuk/gagal
+    }
+}
 
 function api_submitPerjalananDinas(payload, user) {
   try {
+    user = _syncFreshUser(user);
     if (!user.lokasi) throw new Error("Data Lokasi Karyawan kosong di Master Database!");
     const userLokasiUpper = user.lokasi.toString().trim().toUpperCase();
     const isSales = (userLokasiUpper === "SALES" || user.jabatan.toString().trim().toUpperCase() === "SALES");
@@ -287,55 +327,12 @@ function api_submitPerjalananDinas(payload, user) {
     const statusAbsensi = payload.statusAbsensi || "H";
 
     // ==========================================================
-    // [NEW] PROTOKOL VALIDASI RADIUS LATLONG & HAVERSINE ENGINE
+    // [UNIVERSAL SECURITY]: PROTOKOL HAVERSINE BERANGKAT
     // ==========================================================
-    if (userLokasiUpper === "RFMC" && statusAbsensi !== "BKF" && statusAbsensi !== "BKS") {
-        
-        const dbMaster = SpreadsheetApp.openById(DB_MASTER_ID);
-        const sheetLatlong = dbMaster.getSheetByName("Master_Latlong");
-        
-        if (sheetLatlong) {
-            const dataLatlong = sheetLatlong.getDataRange().getValues();
-            let targetLat = null, targetLon = null, maxRadius = 0, isLatlongActive = false;
-
-            // Memindai konfigurasi untuk lokasi RFMC
-            for (let i = 1; i < dataLatlong.length; i++) {
-                if (dataLatlong[i][0].toString().trim().toUpperCase() === "RFMC") {
-                    targetLat = parseFloat(dataLatlong[i][1]);
-                    targetLon = parseFloat(dataLatlong[i][2]);
-                    maxRadius = parseFloat(dataLatlong[i][3] || 50); // Default 50 meter jika kosong
-                    isLatlongActive = dataLatlong[i][4].toString().trim().toUpperCase() === "AKTIF";
-                    break;
-                }
-            }
-
-            // Eksekusi Kalkulasi Jarak jika mode Latlong diaktifkan oleh Admin
-            if (isLatlongActive && targetLat !== null && targetLon !== null) {
-                const userKordinat = payload.kordinat.toString().split(",");
-                
-                if (userKordinat.length === 2) {
-                    const userLat = parseFloat(userKordinat[0].trim());
-                    const userLon = parseFloat(userKordinat[1].trim());
-
-                    // Haversine Formula (Menghitung jarak lengkung bumi dalam Meter)
-                    const R = 6371e3; // Radius bumi (Meter)
-                    const rad = Math.PI / 180;
-                    const dLat = (targetLat - userLat) * rad;
-                    const dLon = (targetLon - userLon) * rad;
-                    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                              Math.cos(userLat * rad) * Math.cos(targetLat * rad) *
-                              Math.sin(dLon / 2) * Math.sin(dLon / 2);
-                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-                    const distance = R * c;
-
-                    // Blokir jika jarak melebihi batas radius yang diizinkan
-                    if (distance > maxRadius) {
-                        return { status: "error", message: `⛔ FRAUD ALERT: Posisi Anda (${distance.toFixed(0)} Meter) berada di luar radius POS Security RFMC (Maksimal: ${maxRadius} Meter)!` };
-                    }
-                } else {
-                    return { status: "error", message: "Gagal memindai kordinat GPS atau format tidak valid!" };
-                }
-            }
+    if (user.jabatan !== "Super Admin" && user.jabatan !== "Administrator") {
+        const gpsCheck = _checkRadiusValidation(userLokasiUpper, payload.kordinat);
+        if (!gpsCheck.valid) {
+            return { status: "error", message: gpsCheck.message };
         }
     }
     // ==========================================================
@@ -353,7 +350,26 @@ function api_submitPerjalananDinas(payload, user) {
         ];
     }
     
-    sheet.appendRow(rowData);
+    // ==========================================================
+    // [KOREKSI MUTLAK ARRAYFORMULA]: REVERSE LOOP ALGORITHM
+    // Mencegah data tertimpa jika ada baris kosong di tengah tabel
+    // ==========================================================
+    const maxRows = sheet.getLastRow(); 
+    let targetRow = 2; // Default jika tabel benar-benar kosong (mulai setelah Header)
+    
+    if (maxRows > 0) {
+        // Hanya menarik 1 kolom (Kolom A) agar eksekusi sangat ringan dan secepat kilat
+        const colA = sheet.getRange(1, 1, maxRows, 1).getValues();
+        for (let i = colA.length - 1; i >= 0; i--) {
+            if (colA[i][0] !== "") {
+                targetRow = i + 2; // i + 1 untuk index aktual, +1 lagi untuk turun ke baris kosong
+                break;
+            }
+        }
+    }
+    
+    sheet.getRange(targetRow, 1, 1, rowData.length).setValues([rowData]);
+    // ==========================================================
 
     // [AUTO-GRID DB_REKAP]
     try {
@@ -369,17 +385,17 @@ function api_submitPerjalananDinas(payload, user) {
         const todayStr = Utilities.formatDate(timestamp, "Asia/Jakarta", "dd/MM/yyyy");
         const timeStr = Utilities.formatDate(timestamp, "Asia/Jakarta", "HH:mm");
         const dataRekap = rekapSheet.getDataRange().getValues();
-        let targetRow = -1; let targetCol = -1;
+        let tRow = -1; let tCol = -1;
         
         for (let r = 1; r < dataRekap.length; r++) {
-          if (dataRekap[r][0].toString() === user.nrpp.toString()) { targetRow = r + 1; break; }
+          if (dataRekap[r][0].toString() === user.nrpp.toString()) { tRow = r + 1; break; }
         }
         
-        if (targetRow === -1) {
-          targetRow = rekapSheet.getLastRow() + 1;
-          if (targetRow < 3) targetRow = 3; 
-          rekapSheet.getRange(targetRow, 1).setValue(user.nrpp);
-          rekapSheet.getRange(targetRow, 2).setValue(user.nama);
+        if (tRow === -1) {
+          tRow = rekapSheet.getLastRow() + 1;
+          if (tRow < 3) tRow = 3; 
+          rekapSheet.getRange(tRow, 1).setValue(user.nrpp);
+          rekapSheet.getRange(tRow, 2).setValue(user.nama);
           if (rekapSheet.getRange("A1").getValue() === "") {
              rekapSheet.getRange("A1:A2").merge().setValue("NRPP").setBackground("#000000").setFontColor("#FFFFFF").setHorizontalAlignment("center").setVerticalAlignment("middle").setFontWeight("bold");
              rekapSheet.getRange("B1:B2").merge().setValue("Nama").setBackground("#000000").setFontColor("#FFFFFF").setHorizontalAlignment("center").setVerticalAlignment("middle").setFontWeight("bold");
@@ -389,23 +405,23 @@ function api_submitPerjalananDinas(payload, user) {
         let headerRow = dataRekap.length > 0 ? dataRekap[0] : [];
         for (let c = 2; c < headerRow.length; c += 4) {
           let cellDateStr = (headerRow[c] instanceof Date) ? Utilities.formatDate(headerRow[c], "Asia/Jakarta", "dd/MM/yyyy") : headerRow[c].toString();
-          if (cellDateStr.includes(todayStr)) { targetCol = c + 1; break; }
+          if (cellDateStr.includes(todayStr)) { tCol = c + 1; break; }
         }
 
-        if (targetCol === -1) {
-          targetCol = rekapSheet.getLastColumn() + 1;
-          if (targetCol < 3) targetCol = 3;
-          rekapSheet.getRange(1, targetCol).setValue(todayStr);
-          rekapSheet.getRange(1, targetCol, 1, 4).mergeAcross().setBackground("#000000").setFontColor("#FFFFFF").setHorizontalAlignment("center").setFontWeight("bold");
-          rekapSheet.getRange(2, targetCol).setValue("IN");
-          rekapSheet.getRange(2, targetCol + 1).setValue("OUT");
-          rekapSheet.getRange(2, targetCol + 2).setValue("STATUS");
-          rekapSheet.getRange(2, targetCol + 3).setValue("DURASI");
-          rekapSheet.getRange(2, targetCol, 1, 4).setBackground("#000000").setFontColor("#FFFFFF").setHorizontalAlignment("center").setFontWeight("bold");
+        if (tCol === -1) {
+          tCol = rekapSheet.getLastColumn() + 1;
+          if (tCol < 3) tCol = 3;
+          rekapSheet.getRange(1, tCol).setValue(todayStr);
+          rekapSheet.getRange(1, tCol, 1, 4).mergeAcross().setBackground("#000000").setFontColor("#FFFFFF").setHorizontalAlignment("center").setFontWeight("bold");
+          rekapSheet.getRange(2, tCol).setValue("IN");
+          rekapSheet.getRange(2, tCol + 1).setValue("OUT");
+          rekapSheet.getRange(2, tCol + 2).setValue("STATUS");
+          rekapSheet.getRange(2, tCol + 3).setValue("DURASI");
+          rekapSheet.getRange(2, tCol, 1, 4).setBackground("#000000").setFontColor("#FFFFFF").setHorizontalAlignment("center").setFontWeight("bold");
         }
 
-        rekapSheet.getRange(targetRow, targetCol).setValue(timeStr); 
-        rekapSheet.getRange(targetRow, targetCol + 2).setValue(statusAbsensi);
+        rekapSheet.getRange(tRow, tCol).setValue(timeStr); 
+        rekapSheet.getRange(tRow, tCol + 2).setValue(statusAbsensi);
       }
     } catch(e) { console.error("Error DB_REKAP IN: " + e.message); }
 
@@ -421,9 +437,21 @@ function api_submitPerjalananDinas(payload, user) {
 
 function api_submitPulangDinas(payload, user) {
   try {
+    user = _syncFreshUser(user);
     if (!user.lokasi) throw new Error("Data Lokasi Karyawan kosong!");
     const userLokasiUpper = user.lokasi.toString().trim().toUpperCase();
     const isSales = (userLokasiUpper === "SALES" || user.jabatan.toString().trim().toUpperCase() === "SALES");
+    
+    // ==========================================================
+    // [UNIVERSAL SECURITY]: PROTOKOL HAVERSINE KEPULANGAN
+    // ==========================================================
+    if (user.jabatan !== "Super Admin" && user.jabatan !== "Administrator") {
+        const gpsCheck = _checkRadiusValidation(userLokasiUpper, payload.kordinatMasuk);
+        if (!gpsCheck.valid) {
+            return { status: "error", message: gpsCheck.message };
+        }
+    }
+    // ==========================================================
     
     const dbApp = isSales ? SpreadsheetApp.openById(DB_SALES_ID) : SpreadsheetApp.openById(DB_UPD_ID);
     let targetSheetName = isSales ? "Log_Sales" : "Log_" + user.lokasi.trim(); 
@@ -1453,18 +1481,87 @@ function api_userUpdateST(trxIds, newST, user) {
   }
 }
 
+// ==========================================================
+// [SECURITY FIX v1.3.02]: UNIVERSAL RADIUS VALIDATOR
+// Memperbaiki deteksi "NON AKTIF" agar tidak terjebak teks 'AKTIF'
+// ==========================================================
+function _checkRadiusValidation(userLokasi, kordinat) {
+    try {
+        const dbMaster = SpreadsheetApp.openById(DB_MASTER_ID);
+        const sheetLatlong = dbMaster.getSheetByName("Master_Latlong");
+        if (!sheetLatlong) return { valid: true };
+
+        const dataLatlong = sheetLatlong.getDataRange().getValues();
+        let targetLat = null, targetLon = null, maxRadius = 0, isLatlongActive = false;
+
+        for (let i = 1; i < dataLatlong.length; i++) {
+            if (dataLatlong[i][0].toString().trim().toUpperCase() === userLokasi.toString().trim().toUpperCase()) {
+                targetLat = parseFloat(dataLatlong[i][1]);
+                targetLon = parseFloat(dataLatlong[i][2]);
+                maxRadius = parseFloat(dataLatlong[i][3] || 50);
+                
+                // [FIX LOGIKA]: Pastikan mengandung 'AKTIF' TAPI TIDAK mengandung 'NON' atau 'TIDAK'
+                let stat = dataLatlong[i][4].toString().trim().toUpperCase();
+                isLatlongActive = (stat.includes("AKTIF") || stat.includes("AKITIF")) && 
+                                  !stat.includes("NON") && 
+                                  !stat.includes("TIDAK");
+                break;
+            }
+        }
+
+        if (isLatlongActive && targetLat !== null && targetLon !== null) {
+            if (kordinat === "BYPASS_ADMIN") return { valid: true }; 
+            
+            const userKordinat = kordinat.toString().split(",");
+            if (userKordinat.length === 2) {
+                const userLat = parseFloat(userKordinat[0].trim());
+                const userLon = parseFloat(userKordinat[1].trim());
+
+                const R = 6371e3; // Radius Bumi
+                const rad = Math.PI / 180;
+                const dLat = (targetLat - userLat) * rad;
+                const dLon = (targetLon - userLon) * rad;
+                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                          Math.cos(userLat * rad) * Math.cos(targetLat * rad) *
+                          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                const distance = R * c;
+
+                if (distance > maxRadius) {
+                    return { valid: false, message: `⛔ FRAUD ALERT: Jarak Anda ${distance.toFixed(0)}m dari POS. (Maks: ${maxRadius}m)` };
+                }
+            } else {
+                return { valid: false, message: "Kordinat GPS tidak valid!" };
+            }
+        }
+        return { valid: true }; // Bypassed jika NON AKTIF
+    } catch(e) {
+        return { valid: true }; 
+    }
+}
+
+// [FIX GOLDEN RULE #4]: Pengganti appendRow yang aman dari ArrayFormula
+function _safeInsertRow(sheet, rowData) {
+    const realLastRow = sheet.getRange("A:A").getValues().filter(String).length;
+    const targetRow = realLastRow + 1;
+    sheet.getRange(targetRow, 1, 1, rowData.length).setValues([rowData]);
+}
+
 // GANTI FUNGSI INI DI BE_Services.gs
 function api_getScriptUrl() {
   return ScriptApp.getService().getUrl();
 }
 
 /**
- * Master Config: Sumber kebenaran versi aplikasi.
- * Tambahkan/Update fungsi ini di BE_Services.gs
+ * Master Config: Sumber kebenaran versi aplikasi & Security.
  */
 function api_getSystemConfig() {
   return {
-    latestVersion: "v1.2.16", // <-- UBAH KE v1.2.12 SEKARANG
-    scriptUrl: ScriptApp.getService().getUrl()
+    latestVersion: "v1.3.03", // Naikkan versi untuk deployment ini
+    scriptUrl: ScriptApp.getService().getUrl(),
+    
+    // [KILL SWITCH]: NAIKKAN ANGKA INI JIKA INGIN MEMAKSA SEMUA USER LOGOUT!
+    // Contoh: Jika sekarang 1, besok-besok mau paksa logout lagi, ubah jadi 2, lalu 3, dst.
+    securityTick: 1 
   };
 }
